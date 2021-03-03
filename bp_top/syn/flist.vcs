@@ -102,6 +102,7 @@ $BASEJUMP_STL_DIR/bsg_misc/bsg_counter_clear_up.v
 $BASEJUMP_STL_DIR/bsg_misc/bsg_counter_clear_up_one_hot.v
 $BASEJUMP_STL_DIR/bsg_misc/bsg_counter_set_down.v
 $BASEJUMP_STL_DIR/bsg_misc/bsg_counter_set_en.v
+$BASEJUMP_STL_DIR/bsg_misc/bsg_counter_overflow_en.v
 $BASEJUMP_STL_DIR/bsg_misc/bsg_counter_up_down.v
 $BASEJUMP_STL_DIR/bsg_misc/bsg_counter_up_down_variable.v
 $BASEJUMP_STL_DIR/bsg_misc/bsg_crossbar_o_by_i.v
@@ -292,6 +293,7 @@ $BP_ME_DIR/src/v/network/bp_me_stream_to_burst.sv
 $BP_ME_DIR/src/v/network/bp_me_burst_to_stream.sv
 $BP_ME_DIR/src/v/network/bp_me_stream_pump_in.sv
 $BP_ME_DIR/src/v/network/bp_me_stream_pump_out.sv
+$BP_ME_DIR/src/v/cce/bp_pce.sv
 ## TOP
 $BP_TOP_DIR/src/v/bp_nd_socket.sv
 $BP_TOP_DIR/src/v/bp_cacc_vdp.sv
@@ -316,6 +318,7 @@ $BP_TOP_DIR/src/v/bp_mem_complex.sv
 $BP_TOP_DIR/src/v/bp_multicore.sv
 $BP_TOP_DIR/src/v/bp_unicore.sv
 $BP_TOP_DIR/src/v/bp_unicore_lite.sv
+$BP_TOP_DIR/src/v/bp_piton_top.sv
 $BP_TOP_DIR/src/v/bp_tile.sv
 $BP_TOP_DIR/src/v/bp_tile_node.sv
 
@@ -327,4 +330,4 @@ $BP_COMMON_DIR/src/v/bsg_dff_reset_half.v
 $BP_COMMON_DIR/src/v/bsg_dff_sync_read.v
 $BP_COMMON_DIR/src/v/bsg_wormhole_to_cache_dma_fanout.v
 $BP_COMMON_DIR/src/v/bsg_rom_param.v
-
+$BP_ME_DIR/test/common/bp_cce_mmio_cfg_loader.sv
