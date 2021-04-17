@@ -43,4 +43,18 @@
     path = tools/axe
     url = https://github.com/black-parrot/axe.git
     branch = blackparrot_mods
+[submodule "external/riscv-dbg"]
+    path = external/riscv-dbg
+    url = https://github.com/pulp-platform/riscv-dbg
+    branch = master
+    update = checkout
+[submodule "external/common_cells"]
+	path = external/common_cells
+	url = https://github.com/pulp-platform/common_cells
+    branch = master
+    update = checkout
+[submodule "external/tech_cells_generic"]
+	path = external/tech_cells_generic
+	url = https://github.com/pulp-platform/tech_cells_generic
+    branch = master
     update = checkout
