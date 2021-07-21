@@ -72,6 +72,7 @@ module bp_fe_icache
    , output logic [instr_width_gp-1:0]                data_o
    , output logic                                     data_v_o
    , output logic                                     miss_v_o
+   , input                                            data_yumi_i
 
    // Cache Engine Interface
    // This is considered the "slow path", handling uncached requests

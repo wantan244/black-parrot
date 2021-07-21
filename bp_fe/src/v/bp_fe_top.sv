@@ -60,14 +60,9 @@ module bp_fe_top
   `declare_bp_core_if(vaddr_width_p, paddr_width_p, asid_width_p, branch_metadata_fwd_width_p);
   `declare_bp_cfg_bus_s(hio_width_p, core_id_width_p, cce_id_width_p, lce_id_width_p);
   `declare_bp_fe_branch_metadata_fwd_s(btb_tag_width_p, btb_idx_width_p, bht_idx_width_p, ghist_width_p, bht_row_width_p);
-  bp_fe_cmd_s fe_cmd_cast_i;
-  assign fe_cmd_cast_i = fe_cmd_i;
-
-  bp_fe_queue_s fe_queue_cast_o;
-  assign fe_queue_o = fe_queue_cast_o;
-
-  bp_cfg_bus_s cfg_bus_cast_i;
-  assign cfg_bus_cast_i = cfg_bus_i;
+  `bp_cast_i(bp_cfg_bus_s, cfg_bus);
+  `bp_cast_i(bp_fe_cmd_s, fe_cmd);
+  `bp_cast_o(bp_fe_queue_s, fe_queue);
 
   // FSM
   enum logic [1:0] {e_wait=2'd0, e_run, e_stall} state_n, state_r;
