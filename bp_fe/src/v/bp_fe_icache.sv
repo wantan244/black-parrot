@@ -65,14 +65,13 @@ module bp_fe_icache
    , input                                            ptag_uncached_i
    , input                                            ptag_nonidem_i
    , input                                            ptag_dram_i
-   , input                                            poison_tl_i
 
    // Cycle 2: "Tag Verify"
    // Data (or miss result) comes out of the cache
    , output logic [instr_width_gp-1:0]                data_o
    , output logic                                     data_v_o
    , output logic                                     miss_v_o
-   , input                                            data_yumi_i
+   , input                                            yumi_i
 
    // Cache Engine Interface
    // This is considered the "slow path", handling uncached requests
@@ -218,7 +217,7 @@ module bp_fe_icache
 
      ,.set_i(tl_we & ~cache_req_yumi_i)
      // We always advance in the non-stalling I$
-     ,.clear_i(1'b1)
+     ,.clear_i(tv_we)
      ,.data_o(v_tl_r)
      );
 
@@ -322,9 +321,8 @@ module bp_fe_icache
    v_tv_reg
     (.clk_i(clk_i)
      ,.reset_i(reset_i)
-     ,.set_i(tv_we & ~poison_tl_i & ~cache_req_yumi_i)
-     // We always advance in the non-stalling I$
-     ,.clear_i(1'b1)
+     ,.set_i(tv_we & ~cache_req_yumi_i)
+     ,.clear_i(yumi_i)
      ,.data_o(v_tv_r)
      );
 
@@ -427,9 +425,9 @@ module bp_fe_icache
   localparam bp_cache_req_size_e block_req_size = bp_cache_req_size_e'(`BSG_SAFE_CLOG2(block_width_p/8));
   localparam bp_cache_req_size_e uncached_req_size = e_size_4B;
 
-  wire cached_req   = v_tv_r & cached_op_tv_r & fill_tv_r & ~hit_v_tv;
-  wire uncached_req = v_tv_r & uncached_op_tv_r & fill_tv_r & ~uncached_pending_r;
-  wire fencei_req   = v_tv_r & fencei_op_tv_r & !coherent_p;
+  wire cached_req   = is_ready & v_tv_r & cached_op_tv_r & fill_tv_r & ~hit_v_tv;
+  wire uncached_req = is_ready & v_tv_r & uncached_op_tv_r & fill_tv_r & ~uncached_pending_r;
+  wire fencei_req   = is_ready & v_tv_r & fencei_op_tv_r & !coherent_p;
 
   assign cache_req_v_o = is_req
     | v_tv_r & (|{uncached_req, cached_req, fencei_req});
@@ -489,6 +487,8 @@ module bp_fe_icache
   // State machine
   //   e_ready  : Cache is ready to accept requests
   //   e_miss   : Cache is waiting for a cache request to be serviced
+  //   e_recover: Cache is re-reading from the tag and data memories to recover
+  //                from cache miss
   //   e_req    : Cache is waiting to send a blocking request to the engine
   /////////////////////////////////////////////////////////////////////////////
   always_comb
@@ -498,7 +498,8 @@ module bp_fe_icache
                            : (cache_req_v_o & ~cache_req_yumi_i)
                              ? e_req
                              : e_ready;
-      e_miss   : state_n = cache_req_complete_i ? e_ready : e_miss;
+      e_miss   : state_n = cache_req_complete_i ? e_recover : e_miss;
+      e_recover: state_n = e_ready;
       e_req    : state_n = cache_req_yumi_i ? e_miss : e_req;
       default: state_n = e_ready;
     endcase
@@ -510,7 +511,9 @@ module bp_fe_icache
     else
       state_r <= state_n;
 
-  assign ready_o = is_ready & ~cache_req_busy_i;
+  // We can accept if there's nothing in tl, if tv is writing, or if we're overriding the TL entry
+  //   icache fence doesn't require the cache engine to be ready, since it doesn't read tag or data
+  assign yumi_o = v_i & (~v_tl_r | tv_we | force_i) & (is_fencei | ~cache_req_busy_i);
 
   /////////////////////////////////////////////////////////////////////////////
   // SRAM Control
@@ -531,12 +534,13 @@ module bp_fe_icache
      );
 
   // Tag mem is bypassed if the index is the same on consecutive reads
-  wire tag_mem_bypass = (vaddr_index == vaddr_index_tl) & tag_mem_last_read_r;
-  wire tag_mem_fast_read = (tl_we & ~tag_mem_bypass);
+  //wire tag_mem_bypass = (vaddr_index == vaddr_index_tl) & tag_mem_last_read_r;
+  wire tag_mem_bypass = '0; // Disable for testing
+  wire tag_mem_fast_read = (tl_we & ~tag_mem_bypass & ~is_fencei) | is_recover;
   assign tag_mem_v_li = tag_mem_fast_read | tag_mem_pkt_yumi_o;
   assign tag_mem_w_li = tag_mem_pkt_yumi_o & (tag_mem_pkt_cast_i.opcode != e_cache_tag_mem_read);
   assign tag_mem_addr_li = tag_mem_fast_read
-    ? vaddr_index
+    ? is_recover ? vaddr_index_tl : vaddr_index
     : tag_mem_pkt_cast_i.index;
   assign tag_mem_pkt_yumi_o = tag_mem_pkt_v_i & ~tag_mem_fast_read;
 
@@ -602,7 +606,8 @@ module bp_fe_icache
      ,.o(vaddr_bank_dec)
      );
 
-  wire data_mem_bypass = (vaddr_vtag == vaddr_vtag_tl) & (vaddr_index == vaddr_index_tl) & data_mem_last_read_r;
+  //wire data_mem_bypass = (vaddr_vtag == vaddr_vtag_tl) & (vaddr_index == vaddr_index_tl) & data_mem_last_read_r;
+  wire data_mem_bypass = '0; // Disable for testing
   // During a data mem bypass, only the necessary bank of data memory is read
   logic [assoc_p-1:0] data_mem_bypass_select;
   bsg_adder_one_hot
@@ -648,13 +653,13 @@ module bp_fe_icache
   for (genvar i = 0; i < assoc_p; i++)
     begin : data_mem_lines
       wire data_mem_slow_write     = data_mem_pkt_v_i & (data_mem_pkt_cast_i.opcode == e_cache_data_mem_write) & data_mem_write_bank_mask[i];
-      assign data_mem_fast_read[i] = tl_we & (~data_mem_bypass | data_mem_bypass_select[i]);
+      assign data_mem_fast_read[i] = tl_we & ~is_fencei & (~data_mem_bypass | data_mem_bypass_select[i]) | is_recover;
 
       assign data_mem_v_li[i] = data_mem_fast_read[i] | (data_mem_pkt_yumi_o & (data_mem_slow_read | data_mem_slow_write));
       assign data_mem_w_li[i] = data_mem_pkt_yumi_o & data_mem_slow_write;
       wire [bindex_width_lp-1:0] data_mem_pkt_offset = (bindex_width_lp'(i) - data_mem_pkt_cast_i.way_id);
       assign data_mem_addr_li[i] = data_mem_fast_read[i]
-        ? {vaddr_index, {(assoc_p > 1){vaddr_bank}}}
+        ? is_recover ? {vaddr_index_tl, {(assoc_p>1){vaddr_bank_tl}}} : {vaddr_index, {(assoc_p > 1){vaddr_bank}}}
         : {data_mem_pkt_cast_i.index, {(assoc_p > 1){data_mem_pkt_offset}}};
       assign data_mem_data_li[i] = data_mem_pkt_data_li[i];
     end
@@ -681,8 +686,8 @@ module bp_fe_icache
   ///////////////////////////
   // Stat Mem Control
   ///////////////////////////
-  wire stat_mem_fast_read = (v_tv_r & ~data_v_o & cached_op_tv_r);
-  wire stat_mem_fast_write = (v_tv_r & data_v_o & cached_op_tv_r);
+  wire stat_mem_fast_read = (v_tv_r & data_v_o & yumi_i & cached_op_tv_r);
+  wire stat_mem_fast_write = (v_tv_r & data_v_o & yumi_i & cached_op_tv_r);
   wire stat_mem_slow_write = stat_mem_pkt_v_i & (stat_mem_pkt_cast_i.opcode != e_cache_stat_mem_read);
   assign stat_mem_pkt_yumi_o = stat_mem_pkt_v_i & ~stat_mem_fast_write & ~stat_mem_fast_read;
   assign stat_mem_v_li = stat_mem_fast_read | stat_mem_fast_write | stat_mem_pkt_yumi_o;
@@ -704,34 +709,6 @@ module bp_fe_icache
   assign stat_mem_mask_li.lru = stat_mem_fast_write ? lru_decode_mask_lo : '1;
 
   assign stat_mem_o = stat_mem_data_lo;
-
-  ///////////////////////////
-  // Uncached Load Storage
-  ///////////////////////////
-  wire uncached_pending_set = cache_req_yumi_i & uncached_req;
-  // Invalidate uncached data if the cache when we successfully complete the request
-  wire uncached_pending_clear = poison_tl_i | data_v_o;
-  bsg_dff_reset_set_clear
-   #(.width_p(1), .clear_over_set_p(1))
-   uncached_pending_reg
-    (.clk_i(clk_i)
-     ,.reset_i(reset_i)
-
-     ,.set_i(uncached_pending_set)
-     ,.clear_i(uncached_pending_clear)
-     ,.data_o(uncached_pending_r)
-     );
-
-  wire uncached_data_set = data_mem_pkt_yumi_o & (data_mem_pkt_cast_i.opcode == e_cache_data_mem_uncached);
-  bsg_dff_en
-   #(.width_p(dword_width_gp))
-   uncached_data_reg
-    (.clk_i(clk_i)
-     ,.en_i(uncached_data_set)
-
-     ,.data_i(data_mem_pkt_cast_i.data[0+:dword_width_gp])
-     ,.data_o(uncached_data_r)
-     );
 
   //synopsys translate_off
   if (`BSG_SAFE_CLOG2(block_width_p*sets_p/8) != page_offset_width_gp) begin
