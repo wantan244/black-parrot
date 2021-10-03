@@ -12,7 +12,7 @@ module bp_piton_top
  import bp_be_pkg::*;
  import bp_me_pkg::*;
  import bsg_noc_pkg::*;
- #(parameter bp_params_e bp_params_p = e_bp_piton_cfg // Warning: Change this at your own peril!
+ #(parameter bp_params_e bp_params_p = e_bp_unicore_parrotpiton_cfg // Warning: Change this at your own peril!
    `declare_bp_proc_params(bp_params_p)
    `declare_bp_bedrock_mem_if_widths(paddr_width_p, icache_fill_width_p, lce_id_width_p, lce_assoc_p, pce)
    `declare_bp_pce_l15_if_widths(paddr_width_p, dword_width_gp)
@@ -112,9 +112,11 @@ module bp_piton_top
   bp_l15_pce_ret_s [1:0] l15_pce_ret_li;
   logic [1:0] l15_pce_ret_v_li, l15_pce_ret_yumi_lo;
 
-  bp_bedrock_pce_mem_msg_s cfg_cmd_li;
+  bp_bedrock_pce_mem_msg_header_s cfg_cmd_header_li;
+  logic [dword_width_gp-1:0] cfg_cmd_data_li;
   logic cfg_cmd_v_li, cfg_cmd_ready_lo;
-  bp_bedrock_pce_mem_msg_s cfg_resp_lo;
+  bp_bedrock_pce_mem_msg_header_s cfg_resp_header_lo;
+  logic [dword_width_gp-1:0] cfg_cmd_data_lo;
   logic cfg_resp_v_lo, cfg_resp_yumi_li;
 
   bp_cfg_bus_s cfg_bus_lo;
@@ -330,30 +332,38 @@ module bp_piton_top
 
      ,.lce_id_i('0)
 
-     ,.io_cmd_o(cfg_cmd_li)
+     ,.io_cmd_header_o(cfg_cmd_header_li)
+     ,.io_cmd_data_o(cfg_cmd_data_li)
      ,.io_cmd_v_o(cfg_cmd_v_li)
+     ,.io_cmd_last_o(cfg_cmd_last_li)
      ,.io_cmd_yumi_i(cfg_cmd_v_li & cfg_cmd_ready_lo)
 
-     ,.io_resp_i(cfg_resp_lo)
+     ,.io_resp_header_i(cfg_resp_header_lo)
+     ,.io_resp_data_i(cfg_resp_data_lo)
      ,.io_resp_v_i(cfg_resp_v_lo)
-     ,.io_resp_ready_o(cfg_resp_ready_li)
+     ,.io_resp_last_i(cfg_resp_last_lo)
+     ,.io_resp_ready_and_o(cfg_resp_ready_li)
 
      ,.done_o()
      );
 
-  bp_cfg
+  bp_me_cfg
    #(.bp_params_p(bp_params_p))
    cfg
     (.clk_i(clk_i)
      ,.reset_i(reset_i)
 
-     ,.mem_cmd_i(cfg_cmd_li)
+     ,.mem_cmd_header_i(cfg_cmd_header_li)
+     ,.mem_cmd_data_i(cfg_cmd_data_li)
      ,.mem_cmd_v_i(cfg_cmd_v_li)
+     ,.mem_cmd_last_i(cfg_cmd_last_li)
      ,.mem_cmd_ready_and_o(cfg_cmd_ready_lo)
 
-     ,.mem_resp_o(cfg_resp_lo)
+     ,.mem_resp_header_o(cfg_resp_header_lo)
+     ,.mem_resp_data_o(cfg_resp_data_lo)
      ,.mem_resp_v_o(cfg_resp_v_lo)
-     ,.mem_resp_yumi_i(cfg_resp_yumi_li)
+     ,.mem_resp_last_o(cfg_resp_last_lo)
+     ,.mem_resp_ready_and_i(cfg_resp_yumi_li)
 
      ,.cfg_bus_o(cfg_bus_lo)
      ,.did_i('0)

@@ -6,8 +6,7 @@
 
 module bp_pce
   import bp_common_pkg::*;
-  //#(parameter bp_params_e bp_params_p = e_bp_default_cfg
-  #(parameter bp_params_e bp_params_p = e_bp_piton_cfg
+  #(parameter bp_params_e bp_params_p = e_bp_unicore_parrotpiton_cfg
    ,parameter block_width_p = 128
    ,parameter fill_width_p = 128
    ,parameter assoc_p = 2
