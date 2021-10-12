@@ -162,14 +162,10 @@ module bp_be_pipe_mem
   logic load_misaligned_v, store_misaligned_v;
 
   /* Control signals */
-  logic is_req_mem2, is_req_mem3;
-  logic is_fencei_mem2, is_fencei_mem3;
-  logic is_store_mem2, is_store_mem3;
-
-  wire is_store  = (decode.pipe_mem_early_v | decode.pipe_mem_final_v) & decode.dcache_w_v;
-  wire is_load   = (decode.pipe_mem_early_v | decode.pipe_mem_final_v) & decode.dcache_r_v;
-  wire is_fencei = (decode.pipe_mem_early_v | decode.pipe_mem_final_v) & decode.fu_op inside {e_dcache_op_fencei};
-  wire is_req    = reservation.v & (is_store | is_load);
+  wire is_store   = (decode.pipe_mem_early_v | decode.pipe_mem_final_v) & decode.dcache_w_v;
+  wire is_load    = (decode.pipe_mem_early_v | decode.pipe_mem_final_v) & decode.dcache_r_v;
+  wire is_fencei  = (decode.pipe_mem_early_v | decode.pipe_mem_final_v) & decode.fu_op inside {e_dcache_op_fencei};
+  wire is_req     = reservation.v & (is_store | is_load);
 
   // Calculate cache access eaddr
   wire [rv64_eaddr_width_gp-1:0] eaddr = rs1 + imm;
@@ -318,6 +314,7 @@ module bp_be_pipe_mem
       ,.stat_mem_pkt_yumi_o(stat_mem_pkt_yumi_o)
       );
 
+  logic is_req_mem2, is_store_mem2, is_fencei_mem2;
   bsg_dff_reset
    #(.width_p(3))
    mem2_reg
@@ -327,6 +324,7 @@ module bp_be_pipe_mem
      ,.data_o({is_req_mem2, is_store_mem2, is_fencei_mem2})
      );
 
+  logic is_req_mem3, is_store_mem3, is_fencei_mem3;
   bsg_dff_reset
    #(.width_p(3))
    mem3_reg

@@ -553,6 +553,7 @@ module bp_be_instr_decoder
             decode_cast_o.dcache_r_v = ~(instr inside {`RV64_SCD, `RV64_SCW});
             decode_cast_o.dcache_w_v = ~(instr inside {`RV64_LRD, `RV64_LRW});
             decode_cast_o.mem_v      = 1'b1;
+            decode_cast_o.acquire_v   = (instr inside {`RV64_AMOAQ});
             // Note: could do a more efficent decoding here by having atomic be a flag
             //   And having the op simply taken from funct3
             unique casez (instr)

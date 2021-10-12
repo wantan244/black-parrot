@@ -182,7 +182,7 @@ module bp_lce_req
       ,.count_o(credit_count_lo)
       );
   assign credits_full_o = (credit_count_lo == credits_p);
-  assign credits_empty_o = (credit_count_lo == '0);
+  assign credits_empty_o = (credit_count_lo == '0) && (cache_req_v_r == 1'b0);
 
   // Request Address to CCE
   logic [cce_id_width_p-1:0] req_cce_id_lo;
