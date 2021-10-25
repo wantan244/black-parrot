@@ -288,7 +288,7 @@ module bp_fe_icache
   localparam snoop_offset_width_lp = `BSG_SAFE_CLOG2(fill_width_p/word_width_gp);
   logic [paddr_width_p-1:0]              paddr_tv_r;
   logic [assoc_p-1:0]                    bank_sel_one_hot_tv_r;
-  logic [assoc_p-1:0]                    way_v_tv_r, hit_v_tv_r;
+  logic [assoc_p-1:0]                    way_v_tv_r, hit_tv_r;
   logic                                  fill_tv_r, dram_tv_r, fencei_op_tv_r, uncached_op_tv_r, cached_op_tv_r;
   logic                                  fill_tv_r, dram_tv_r, fencei_op_tv_r, uncached_op_tv_r, cached_op_tv_r;
   logic [assoc_p-1:0][bank_width_lp-1:0] ld_data_tv_r;
@@ -311,7 +311,7 @@ module bp_fe_icache
      ,.reset_i(reset_i)
      ,.en_i(tv_we | cache_req_critical_tag_i)
      ,.data_i({way_v_tv_n, hit_v_tv_n})
-     ,.data_o({way_v_tv_r, hit_v_tv_r})
+     ,.data_o({way_v_tv_r, hit_tv_r})
      );
 
   // fence.i does not check tags
@@ -377,7 +377,7 @@ module bp_fe_icache
   bsg_encode_one_hot
    #(.width_p(assoc_p), .lo_to_hi_p(1))
    hit_index_encoder
-    (.i(hit_v_tv_r)
+    (.i(hit_tv_r)
      ,.addr_o(hit_index_tv)
      ,.v_o(hit_v_tv)
      );
@@ -387,7 +387,7 @@ module bp_fe_icache
   bsg_adder_one_hot
    #(.width_p(assoc_p))
    select_adder
-    (.a_i(hit_v_tv_r)
+    (.a_i(hit_tv_r)
      ,.b_i(bank_sel_one_hot_tv_r)
      ,.o(ld_data_way_select)
      );
