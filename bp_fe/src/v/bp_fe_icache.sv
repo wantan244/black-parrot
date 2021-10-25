@@ -55,8 +55,9 @@ module bp_fe_icache
    // Cycle 0: "Decode"
    // New I$ packet comes in for a fetch, fence or fill request.
    , input [icache_pkt_width_lp-1:0]                  icache_pkt_i
+   , input                                            force_i
    , input                                            v_i
-   , output                                           ready_o
+   , output                                           yumi_o
 
    // Cycle 1: "Tag Lookup"
    // TLB and PMA information comes in this cycle
@@ -65,6 +66,7 @@ module bp_fe_icache
    , input                                            ptag_uncached_i
    , input                                            ptag_nonidem_i
    , input                                            ptag_dram_i
+   , input                                            poison_tl_i
 
    // Cycle 2: "Tag Verify"
    // Data (or miss result) comes out of the cache
@@ -513,7 +515,7 @@ module bp_fe_icache
 
   // We can accept if there's nothing in tl, if tv is writing, or if we're overriding the TL entry
   //   icache fence doesn't require the cache engine to be ready, since it doesn't read tag or data
-  assign yumi_o = v_i & (~v_tl_r | tv_we | force_i) & (is_fencei | ~cache_req_busy_i);
+  assign yumi_o = v_i & (~v_tl_r | tv_we | force_i) & ~cache_req_busy_i;
 
   /////////////////////////////////////////////////////////////////////////////
   // SRAM Control
