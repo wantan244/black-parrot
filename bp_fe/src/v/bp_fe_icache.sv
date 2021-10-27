@@ -126,10 +126,11 @@ module bp_fe_icache
   localparam fill_size_in_bank_lp   = fill_width_p / bank_width_lp;
 
   // State machine declaration
-  enum logic [1:0] {e_ready, e_miss, e_req} state_n, state_r;
+  enum logic [1:0] {e_ready, e_miss, e_req, e_recover} state_n, state_r;
   wire is_ready   = (state_r == e_ready);
   wire is_miss    = (state_r == e_miss);
   wire is_req     = (state_r == e_req);
+  wire is_recover = (state_r == e_recover);
 
   // Feedback signals between stages
   logic tl_we, tv_we;
@@ -210,14 +211,14 @@ module bp_fe_icache
   logic fill_op_tl_r, fetch_op_tl_r, fencei_op_tl_r;
 
   // Valid when we accept new data, clear when we advance to tv
-  assign tl_we = ready_o & v_i;
+  assign tl_we = yumi_o;
   bsg_dff_reset_set_clear
    #(.width_p(1))
    v_tl_reg
     (.clk_i(clk_i)
      ,.reset_i(reset_i)
 
-     ,.set_i(tl_we & ~cache_req_yumi_i)
+     ,.set_i(tl_we)
      // We always advance in the non-stalling I$
      ,.clear_i(tv_we)
      ,.data_o(v_tl_r)
@@ -292,7 +293,6 @@ module bp_fe_icache
   logic [assoc_p-1:0]                    bank_sel_one_hot_tv_r;
   logic [assoc_p-1:0]                    way_v_tv_r, hit_tv_r;
   logic                                  fill_tv_r, dram_tv_r, fencei_op_tv_r, uncached_op_tv_r, cached_op_tv_r;
-  logic                                  fill_tv_r, dram_tv_r, fencei_op_tv_r, uncached_op_tv_r, cached_op_tv_r;
   logic [assoc_p-1:0][bank_width_lp-1:0] ld_data_tv_r;
 
   logic [assoc_p-1:0] way_v_tv_n, hit_v_tv_n;
@@ -317,13 +317,13 @@ module bp_fe_icache
      );
 
   // fence.i does not check tags
-  assign tv_we = v_tl_r & (ptag_v_i | fencei_op_tl_r);
+  assign tv_we = ~v_tv_r | yumi_i;
   bsg_dff_reset_set_clear
    #(.width_p(1))
    v_tv_reg
     (.clk_i(clk_i)
      ,.reset_i(reset_i)
-     ,.set_i(tv_we & ~cache_req_yumi_i)
+     ,.set_i(tv_we & v_tl_r & (ptag_v_i | fencei_op_tl_r))
      ,.clear_i(yumi_i)
      ,.data_o(v_tv_r)
      );
@@ -413,9 +413,9 @@ module bp_fe_icache
      );
 
   assign data_o = uncached_op_tv_r ? uncached_data_r : final_data;
-  assign data_v_o = v_tv_r & ((uncached_op_tv_r & uncached_pending_r)
+  assign data_v_o = is_ready & v_tv_r & ((uncached_op_tv_r & uncached_pending_r)
                               | (cached_op_tv_r & hit_v_tv)
-                              );
+                              ) || is_recover;
   assign miss_v_o = v_tv_r & ~fill_tv_r & ~data_v_o;
 
   /////////////////////////////////////////////////////////////////////////////
@@ -688,7 +688,7 @@ module bp_fe_icache
   ///////////////////////////
   // Stat Mem Control
   ///////////////////////////
-  wire stat_mem_fast_read = (v_tv_r & data_v_o & yumi_i & cached_op_tv_r);
+  wire stat_mem_fast_read = is_ready & (v_tv_r & ~(data_v_o | miss_v_o) & cached_op_tv_r);
   wire stat_mem_fast_write = (v_tv_r & data_v_o & yumi_i & cached_op_tv_r);
   wire stat_mem_slow_write = stat_mem_pkt_v_i & (stat_mem_pkt_cast_i.opcode != e_cache_stat_mem_read);
   assign stat_mem_pkt_yumi_o = stat_mem_pkt_v_i & ~stat_mem_fast_write & ~stat_mem_fast_read;

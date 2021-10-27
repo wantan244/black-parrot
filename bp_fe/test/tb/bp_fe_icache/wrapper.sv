@@ -94,8 +94,8 @@ module wrapper
   logic rolly_dram_lo;
   logic rolly_v_lo;
   logic rolly_yumi_li;
-  logic icache_ready_lo;
-  assign rolly_yumi_li = rolly_v_lo & icache_ready_lo;
+  logic icache_yumi_lo;
+  assign rolly_yumi_li = rolly_v_lo & icache_yumi_lo;
 
   logic rollback_li, rolly_yumi_rr;
 
@@ -107,7 +107,7 @@ module wrapper
 
      ,.clr_v_i(1'b0)
      ,.deq_v_i(data_v_o)
-     ,.roll_v_i(rollback_li)
+     ,.roll_v_i(1'b0)
 
      ,.data_i({ptag_dram_i, ptag_nonidem_i, ptag_uncached_i, vaddr_i, ptag_i})
      ,.v_i(vaddr_v_i)
@@ -117,16 +117,6 @@ module wrapper
      ,.v_o(rolly_v_lo)
      ,.yumi_i(rolly_yumi_li)
      );
-
-  bsg_dff_chain
-   #(.width_p(1), .num_stages_p(2))
-   rolly_yumi_reg
-    (.clk_i(clk_i)
-     ,.data_i(rolly_yumi_li)
-     ,.data_o(rolly_yumi_rr)
-     );
-
-  assign rollback_li = rolly_yumi_rr & ~data_v_o;
 
   logic [ptag_width_p-1:0] rolly_ptag_r;
   bsg_dff_reset
@@ -150,17 +140,6 @@ module wrapper
      ,.data_o({dram_r, nonidem_r, uncached_r, ptag_v_r})
      );
 
-   logic icache_v_rr, poison_li;
-   bsg_dff_chain
-    #(.width_p(1), .num_stages_p(2))
-    icache_v_reg
-     (.clk_i(clk_i)
-      ,.data_i(rolly_yumi_li)
-      ,.data_o(icache_v_rr)
-      );
-
-   assign poison_li = icache_v_rr & ~data_v_o;
-
   `declare_bp_fe_icache_pkt_s(vaddr_width_p);
   bp_fe_icache_pkt_s icache_pkt;
   assign icache_pkt = '{vaddr: rolly_vaddr_lo, op: e_icache_fill};
@@ -180,8 +159,9 @@ module wrapper
      ,.cfg_bus_i(cfg_bus_i)
 
      ,.icache_pkt_i(icache_pkt)
-     ,.v_i(rolly_yumi_li)
-     ,.ready_o(icache_ready_lo)
+     ,.v_i(rolly_v_lo)
+     ,.yumi_o(icache_yumi_lo)
+     ,.force_i(1'b0)
 
      ,.ptag_i(rolly_ptag_r)
      ,.ptag_v_i(ptag_v_r)
@@ -193,6 +173,7 @@ module wrapper
      ,.data_o(data_o)
      ,.data_v_o(data_v_o)
      ,.miss_v_o()
+     ,.yumi_i(data_v_o)
 
      ,.cache_req_o(cache_req_lo)
      ,.cache_req_v_o(cache_req_v_lo)
