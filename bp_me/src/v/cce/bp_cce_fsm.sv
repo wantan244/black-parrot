@@ -44,8 +44,8 @@ module bp_cce_fsm
     , localparam lg_max_tag_sets_lp        = `BSG_SAFE_CLOG2(max_tag_sets_lp)
 
     // interface widths
-    `declare_bp_bedrock_lce_if_widths(paddr_width_p, cce_block_width_p, lce_id_width_p, cce_id_width_p, lce_assoc_p, lce)
-    `declare_bp_bedrock_mem_if_widths(paddr_width_p, cce_block_width_p, lce_id_width_p, lce_assoc_p, cce)
+    `declare_bp_bedrock_lce_if_widths(paddr_width_p, lce_id_width_p, cce_id_width_p, lce_assoc_p, lce)
+    `declare_bp_bedrock_mem_if_widths(paddr_width_p, did_width_p, lce_id_width_p, lce_assoc_p, cce)
 
     , localparam counter_max_lp = 256
     , localparam hash_index_width_lp=$clog2((2**lg_lce_sets_lp+num_cce_p-1)/num_cce_p)
@@ -63,7 +63,7 @@ module bp_cce_fsm
 
    // LCE-CCE Interface
    // BedRock Burst protocol: ready&valid
-   , input [lce_req_msg_header_width_lp-1:0]        lce_req_header_i
+   , input [lce_req_header_width_lp-1:0]            lce_req_header_i
    , input                                          lce_req_header_v_i
    , output logic                                   lce_req_header_ready_and_o
    , input                                          lce_req_has_data_i
@@ -72,7 +72,7 @@ module bp_cce_fsm
    , output logic                                   lce_req_data_ready_and_o
    , input                                          lce_req_last_i
 
-   , input [lce_resp_msg_header_width_lp-1:0]       lce_resp_header_i
+   , input [lce_resp_header_width_lp-1:0]           lce_resp_header_i
    , input                                          lce_resp_header_v_i
    , output logic                                   lce_resp_header_ready_and_o
    , input                                          lce_resp_has_data_i
@@ -81,7 +81,7 @@ module bp_cce_fsm
    , output logic                                   lce_resp_data_ready_and_o
    , input                                          lce_resp_last_i
 
-   , output logic [lce_cmd_msg_header_width_lp-1:0] lce_cmd_header_o
+   , output logic [lce_cmd_header_width_lp-1:0]     lce_cmd_header_o
    , output logic                                   lce_cmd_header_v_o
    , input                                          lce_cmd_header_ready_and_i
    , output logic                                   lce_cmd_has_data_o
@@ -92,13 +92,13 @@ module bp_cce_fsm
 
    // CCE-MEM Interface
    // BedRock Stream protocol: ready&valid
-   , input [cce_mem_msg_header_width_lp-1:0]        mem_resp_header_i
+   , input [cce_mem_header_width_lp-1:0]            mem_resp_header_i
    , input [dword_width_gp-1:0]                     mem_resp_data_i
    , input                                          mem_resp_v_i
    , output logic                                   mem_resp_ready_and_o
    , input                                          mem_resp_last_i
 
-   , output logic [cce_mem_msg_header_width_lp-1:0] mem_cmd_header_o
+   , output logic [cce_mem_header_width_lp-1:0]     mem_cmd_header_o
    , output logic [dword_width_gp-1:0]              mem_cmd_data_o
    , output logic                                   mem_cmd_v_o
    , input                                          mem_cmd_ready_and_i
@@ -111,25 +111,25 @@ module bp_cce_fsm
   if (counter_max_lp < max_tag_sets_lp) $fatal(0,"Counter max value not large enough");
   if (icache_block_width_p != cce_block_width_p) $fatal(0,"icache block width must match cce block width");
   if (dcache_block_width_p != cce_block_width_p) $fatal(0,"dcache block width must match cce block width");
-  if (acache_block_width_p != cce_block_width_p) $fatal(0,"acache block width must match cce block width");
+  if ((num_cacc_p) > 0 && (acache_block_width_p != cce_block_width_p)) $fatal(0,"acache block width must match cce block width");
   if (dword_width_gp != 64) $fatal(0,"FSM CCE requires dword width of 64-bits");
   if (!(`BSG_IS_POW2(cce_block_width_p) || cce_block_width_p < 64 || cce_block_width_p > 1024))
     $fatal(0, "invalid CCE block width");
 
   // Define structure variables for output queues
-  `declare_bp_bedrock_lce_if(paddr_width_p, cce_block_width_p, lce_id_width_p, cce_id_width_p, lce_assoc_p, lce);
-  `declare_bp_bedrock_mem_if(paddr_width_p, cce_block_width_p, lce_id_width_p, lce_assoc_p, cce);
+  `declare_bp_bedrock_lce_if(paddr_width_p, lce_id_width_p, cce_id_width_p, lce_assoc_p, lce);
+  `declare_bp_bedrock_mem_if(paddr_width_p, did_width_p, lce_id_width_p, lce_assoc_p, cce);
 
   // LCE-CCE Interface structs
-  bp_bedrock_lce_req_msg_header_s  lce_req;
-  bp_bedrock_lce_resp_msg_header_s lce_resp;
-  bp_bedrock_lce_cmd_msg_header_s  lce_cmd;
+  bp_bedrock_lce_req_header_s  lce_req;
+  bp_bedrock_lce_resp_header_s lce_resp;
+  bp_bedrock_lce_cmd_header_s  lce_cmd;
   assign lce_cmd_header_o = lce_cmd;
 
   // lce request header buffer
   logic lce_req_v, lce_req_yumi;
   bsg_two_fifo
-    #(.width_p(lce_req_msg_header_width_lp))
+    #(.width_p(lce_req_header_width_lp))
     lce_req_buffer
      (.clk_i(clk_i)
       ,.reset_i(reset_i)
@@ -144,7 +144,7 @@ module bp_cce_fsm
   // lce response header buffer
   logic lce_resp_v, lce_resp_yumi;
   bsg_two_fifo
-    #(.width_p(lce_resp_msg_header_width_lp))
+    #(.width_p(lce_resp_header_width_lp))
     lce_resp_buffer
      (.clk_i(clk_i)
       ,.reset_i(reset_i)
@@ -157,12 +157,7 @@ module bp_cce_fsm
       );
 
   // Memory Response Stream Pump
-  // provide buffer space for two stream messages with data (for coherence protocol)
-  localparam stream_words_lp = cce_block_width_p / dword_width_gp;
-  localparam mem_resp_buffer_els_lp = 2;
-  bp_bedrock_cce_mem_msg_header_s mem_resp_base_header_li;
-  bp_bedrock_cce_mem_payload_s mem_resp_payload_li;
-  assign mem_resp_payload_li = mem_resp_base_header_li.payload;
+  bp_bedrock_cce_mem_header_s mem_resp_base_header_li;
   logic mem_resp_v_li, mem_resp_yumi_lo;
   logic mem_resp_stream_new_li, mem_resp_stream_last_li, mem_resp_stream_done_li;
   logic [paddr_width_p-1:0] mem_resp_addr_li;
@@ -174,7 +169,8 @@ module bp_cce_fsm
       ,.payload_width_p(cce_mem_payload_width_lp)
       ,.msg_stream_mask_p(mem_resp_payload_mask_gp)
       ,.fsm_stream_mask_p(mem_resp_payload_mask_gp)
-      ,.buffer_els_p(mem_resp_buffer_els_lp)
+      // provide buffer space for two stream messages with data (for coherence protocol)
+      ,.header_els_p(2)
       )
     mem_resp_stream_pump
      (.clk_i(clk_i)
@@ -197,9 +193,9 @@ module bp_cce_fsm
       );
 
   // Memory Command Stream Pump
+  localparam stream_words_lp = cce_block_width_p / dword_width_gp;
   localparam data_len_width_lp = `BSG_SAFE_CLOG2(stream_words_lp);
-  bp_bedrock_cce_mem_msg_header_s mem_cmd_base_header_lo;
-  bp_bedrock_cce_mem_payload_s mem_cmd_payload_lo;
+  bp_bedrock_cce_mem_header_s mem_cmd_base_header_lo;
   logic mem_cmd_v_lo, mem_cmd_ready_and_li;
   logic mem_cmd_stream_new_li, mem_cmd_stream_done_li;
   logic [dword_width_gp-1:0] mem_cmd_data_lo;
@@ -228,6 +224,7 @@ module bp_cce_fsm
       ,.fsm_ready_and_o(mem_cmd_ready_and_li)
       ,.fsm_cnt_o(mem_cmd_stream_cnt_li)
       ,.fsm_new_o(mem_cmd_stream_new_li)
+      ,.fsm_last_o(/* unused */)
       ,.fsm_done_o(mem_cmd_stream_done_li)
       );
 
@@ -561,7 +558,7 @@ module bp_cce_fsm
        ,.spec_i(spec_bits_li)
 
        // read-port
-       ,.r_v_i(mem_resp_v_li & mem_resp_payload_li.speculative)
+       ,.r_v_i(mem_resp_v_li & mem_resp_base_header_li.payload.speculative)
        ,.r_addr_i(mem_resp_base_header_li.addr)
        ,.r_addr_bypass_hash_i('0)
 
@@ -640,7 +637,6 @@ module bp_cce_fsm
     mem_cmd_base_header_lo = '0;
     mem_cmd_v_lo = '0;
     mem_cmd_data_lo = '0;
-    mem_cmd_payload_lo = '0;
 
     // LCE request and response input control
     lce_req_yumi = '0;
@@ -707,7 +703,7 @@ module bp_cce_fsm
 
           // Speculative access response
           // Note: speculative access is only supported for cached requests
-          if (mem_resp_payload_li.speculative) begin
+          if (mem_resp_base_header_li.payload.speculative) begin
 
             if (spec_bits_lo.spec) begin // speculation not resolved yet
               // do nothing, wait for speculation to be resolved
@@ -752,8 +748,8 @@ module bp_cce_fsm
 
               // command payload
               // modify the coherence state
-              lce_cmd.payload.dst_id = mem_resp_payload_li.lce_id;
-              lce_cmd.payload.way_id = mem_resp_payload_li.way_id;
+              lce_cmd.payload.dst_id = mem_resp_base_header_li.payload.lce_id;
+              lce_cmd.payload.way_id = mem_resp_base_header_li.payload.way_id;
               lce_cmd.payload.state = bp_coh_states_e'(spec_bits_lo.state);
 
               // decrement pending bit on lce cmd header send
@@ -787,9 +783,9 @@ module bp_cce_fsm
               lce_cmd.size = mem_resp_base_header_li.size;
 
               // command payload
-              lce_cmd.payload.dst_id = mem_resp_payload_li.lce_id;
-              lce_cmd.payload.way_id = mem_resp_payload_li.way_id;
-              lce_cmd.payload.state = mem_resp_payload_li.state;
+              lce_cmd.payload.dst_id = mem_resp_base_header_li.payload.lce_id;
+              lce_cmd.payload.way_id = mem_resp_base_header_li.payload.way_id;
+              lce_cmd.payload.state = mem_resp_base_header_li.payload.state;
 
               // decrement pending bit on lce cmd header send
               pending_busy = lce_cmd_header_v_o & lce_cmd_header_ready_and_i;
@@ -825,9 +821,9 @@ module bp_cce_fsm
             lce_cmd.size = mem_resp_base_header_li.size;
 
             // command payload
-            lce_cmd.payload.dst_id = mem_resp_payload_li.lce_id;
-            lce_cmd.payload.way_id = mem_resp_payload_li.way_id;
-            lce_cmd.payload.state = mem_resp_payload_li.state;
+            lce_cmd.payload.dst_id = mem_resp_base_header_li.payload.lce_id;
+            lce_cmd.payload.way_id = mem_resp_base_header_li.payload.way_id;
+            lce_cmd.payload.state = mem_resp_base_header_li.payload.state;
 
             // decrement pending bit on mem response dequeue (same as lce cmd send)
             pending_busy = lce_cmd_header_v_o & lce_cmd_header_ready_and_i;
@@ -861,7 +857,7 @@ module bp_cce_fsm
             lce_cmd.size = mem_resp_base_header_li.size;
 
             // command payload
-            lce_cmd.payload.dst_id = mem_resp_payload_li.lce_id;
+            lce_cmd.payload.dst_id = mem_resp_base_header_li.payload.lce_id;
 
             // send data next cycle, after header sends
             mem_resp_state_n = (lce_cmd_header_v_o & lce_cmd_header_ready_and_i)
@@ -897,7 +893,7 @@ module bp_cce_fsm
             // leave size as '0 equivalent, no data in this message
 
             // command payload
-            lce_cmd.payload.dst_id = mem_resp_payload_li.lce_id;
+            lce_cmd.payload.dst_id = mem_resp_base_header_li.payload.lce_id;
 
             // decrement pending bits if operating in normal mode and request was made
             // to coherent memory space
@@ -1053,9 +1049,8 @@ module bp_cce_fsm
           mem_cmd_base_header_lo.addr = lce_req.addr;
           mem_cmd_base_header_lo.size = lce_req.size;
           mem_cmd_base_header_lo.msg_type.mem = e_bedrock_mem_uc_wr;
-          mem_cmd_payload_lo.lce_id = lce_req.payload.src_id;
-          mem_cmd_payload_lo.uncached = 1'b1;
-          mem_cmd_base_header_lo.payload = mem_cmd_payload_lo;
+          mem_cmd_base_header_lo.payload.lce_id = lce_req.payload.src_id;
+          mem_cmd_base_header_lo.payload.uncached = 1'b1;
           mem_cmd_data_lo = lce_req_data_i;
 
           state_n = (mem_cmd_v_lo & mem_cmd_ready_and_li) & ~mem_cmd_stream_done_li
@@ -1071,9 +1066,8 @@ module bp_cce_fsm
 
           mem_cmd_base_header_lo.addr = lce_req.addr;
           mem_cmd_base_header_lo.size = lce_req.size;
-          mem_cmd_payload_lo.lce_id = lce_req.payload.src_id;
-          mem_cmd_payload_lo.uncached = 1'b1;
-          mem_cmd_base_header_lo.payload = mem_cmd_payload_lo;
+          mem_cmd_base_header_lo.payload.lce_id = lce_req.payload.src_id;
+          mem_cmd_base_header_lo.payload.uncached = 1'b1;
           mem_cmd_base_header_lo.msg_type.mem = e_bedrock_mem_uc_rd;
 
         end // uncached load
@@ -1094,9 +1088,8 @@ module bp_cce_fsm
           mem_cmd_base_header_lo.addr = lce_req.addr;
           mem_cmd_base_header_lo.size = lce_req.size;
           mem_cmd_base_header_lo.msg_type.mem = e_bedrock_mem_uc_wr;
-          mem_cmd_payload_lo.lce_id = lce_req.payload.src_id;
-          mem_cmd_payload_lo.uncached = 1'b1;
-          mem_cmd_base_header_lo.payload = mem_cmd_payload_lo;
+          mem_cmd_base_header_lo.payload.lce_id = lce_req.payload.src_id;
+          mem_cmd_base_header_lo.payload.uncached = 1'b1;
           mem_cmd_data_lo = lce_req_data_i;
 
           state_n = mem_cmd_stream_done_li
@@ -1218,9 +1211,8 @@ module bp_cce_fsm
           mem_cmd_base_header_lo.addr = mshr_r.paddr;
           mem_cmd_base_header_lo.size = mshr_r.msg_size;
           mem_cmd_base_header_lo.msg_type.mem = e_bedrock_mem_uc_wr;
-          mem_cmd_payload_lo.lce_id = mshr_r.lce_id;
-          mem_cmd_payload_lo.uncached = 1'b1;
-          mem_cmd_base_header_lo.payload = mem_cmd_payload_lo;
+          mem_cmd_base_header_lo.payload.lce_id = mshr_r.lce_id;
+          mem_cmd_base_header_lo.payload.uncached = 1'b1;
           mem_cmd_data_lo = lce_req_data_i;
 
           // if mem command is acked, check if stream is done or not to determine if need to
@@ -1242,9 +1234,8 @@ module bp_cce_fsm
           mem_cmd_base_header_lo.addr = mshr_r.paddr;
           mem_cmd_base_header_lo.size = mshr_r.msg_size;
           mem_cmd_base_header_lo.msg_type.mem = e_bedrock_mem_uc_rd;
-          mem_cmd_payload_lo.lce_id = mshr_r.lce_id;
-          mem_cmd_payload_lo.uncached = 1'b1;
-          mem_cmd_base_header_lo.payload = mem_cmd_payload_lo;
+          mem_cmd_base_header_lo.payload.lce_id = mshr_r.lce_id;
+          mem_cmd_base_header_lo.payload.uncached = 1'b1;
 
           state_n = lce_req_yumi ? e_ready : e_uncached_req;
 
@@ -1264,9 +1255,8 @@ module bp_cce_fsm
          mem_cmd_base_header_lo.addr = mshr_r.paddr;
          mem_cmd_base_header_lo.size = mshr_r.msg_size;
          mem_cmd_base_header_lo.msg_type.mem = e_bedrock_mem_uc_wr;
-         mem_cmd_payload_lo.lce_id = mshr_r.lce_id;
-         mem_cmd_payload_lo.uncached = 1'b1;
-         mem_cmd_base_header_lo.payload = mem_cmd_payload_lo;
+         mem_cmd_base_header_lo.payload.lce_id = mshr_r.lce_id;
+         mem_cmd_base_header_lo.payload.uncached = 1'b1;
          mem_cmd_data_lo = lce_req_data_i;
 
          // stream pump done signal indicates if all data has sent
@@ -1322,12 +1312,11 @@ module bp_cce_fsm
           mem_cmd_base_header_lo.msg_type.mem = e_bedrock_mem_rd;
           mem_cmd_base_header_lo.addr = mshr_r_paddr_aligned;
           mem_cmd_base_header_lo.size = mshr_r.msg_size;
-          mem_cmd_payload_lo.lce_id = mshr_r.lce_id;
-          mem_cmd_payload_lo.way_id = mshr_r.lru_way_id;
+          mem_cmd_base_header_lo.payload.lce_id = mshr_r.lce_id;
+          mem_cmd_base_header_lo.payload.way_id = mshr_r.lru_way_id;
           // speculatively issue request for E state
-          mem_cmd_payload_lo.state = e_COH_E;
-          mem_cmd_payload_lo.speculative = 1'b1;
-          mem_cmd_base_header_lo.payload = mem_cmd_payload_lo;
+          mem_cmd_base_header_lo.payload.state = e_COH_E;
+          mem_cmd_base_header_lo.payload.speculative = 1'b1;
 
           // set the spec bit and clear all other bits for this entry
           spec_w_v = mem_cmd_v_lo & mem_cmd_ready_and_li;
@@ -1554,9 +1543,8 @@ module bp_cce_fsm
             mem_cmd_base_header_lo.msg_type = e_bedrock_mem_wr;
             mem_cmd_base_header_lo.addr = (lce_resp.addr >> lg_block_size_in_bytes_lp) << lg_block_size_in_bytes_lp;
             mem_cmd_base_header_lo.size = lce_resp.size;
-            mem_cmd_payload_lo.lce_id = mshr_r.lce_id;
-            mem_cmd_payload_lo.way_id = '0;
-            mem_cmd_base_header_lo.payload = mem_cmd_payload_lo;
+            mem_cmd_base_header_lo.payload.lce_id = mshr_r.lce_id;
+            mem_cmd_base_header_lo.payload.way_id = '0;
             mem_cmd_data_lo = lce_resp_data_i;
 
             // send remaining beats
@@ -1735,8 +1723,7 @@ module bp_cce_fsm
               // TODO: should this address be aligned by the CCE?
               mem_cmd_base_header_lo.addr = (lce_resp.addr >> lg_block_size_in_bytes_lp) << lg_block_size_in_bytes_lp;
               mem_cmd_base_header_lo.size = lce_resp.size;
-              mem_cmd_payload_lo.lce_id = mshr_r.lce_id;
-              mem_cmd_base_header_lo.payload = mem_cmd_payload_lo;
+              mem_cmd_base_header_lo.payload.lce_id = mshr_r.lce_id;
               mem_cmd_data_lo = lce_resp_data_i;
 
               // set the pending bit
@@ -1784,11 +1771,10 @@ module bp_cce_fsm
           mem_cmd_base_header_lo.size = mshr_r.msg_size;
           // TODO: uncomment/modify when implementing atomics
           //mem_cmd_base_header_lo.amo_no_return = mshr_r.flags[e_opd_anrf];
-          mem_cmd_payload_lo.lce_id = mshr_r.lce_id;
-          mem_cmd_payload_lo.way_id = '0;
+          mem_cmd_base_header_lo.payload.lce_id = mshr_r.lce_id;
+          mem_cmd_base_header_lo.payload.way_id = '0;
           // this op is uncached in LCE for both amo or uncached requests
-          mem_cmd_payload_lo.uncached = 1'b1;
-          mem_cmd_base_header_lo.payload = mem_cmd_payload_lo;
+          mem_cmd_base_header_lo.payload.uncached = 1'b1;
           mem_cmd_data_lo = lce_req_data_i;
 
           // set the pending bit
@@ -1871,9 +1857,8 @@ module bp_cce_fsm
             mem_cmd_base_header_lo.msg_type.mem = e_bedrock_mem_wr;
             // TODO: should CCE align this address?
             mem_cmd_base_header_lo.addr = (lce_resp.addr >> lg_block_size_in_bytes_lp) << lg_block_size_in_bytes_lp;
-            mem_cmd_payload_lo.lce_id = mshr_r.lce_id;
-            mem_cmd_payload_lo.way_id = '0;
-            mem_cmd_base_header_lo.payload = mem_cmd_payload_lo;
+            mem_cmd_base_header_lo.payload.lce_id = mshr_r.lce_id;
+            mem_cmd_base_header_lo.payload.way_id = '0;
             mem_cmd_base_header_lo.size = lce_resp.size;
             mem_cmd_data_lo = lce_resp_data_i;
 

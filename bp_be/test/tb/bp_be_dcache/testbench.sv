@@ -14,7 +14,7 @@ module testbench
  import bp_me_pkg::*;
  #(parameter bp_params_e bp_params_p = BP_CFG_FLOWVAR // Replaced by the flow with a specific bp_cfg
    `declare_bp_proc_params(bp_params_p)
-   `declare_bp_bedrock_mem_if_widths(paddr_width_p, cce_block_width_p, lce_id_width_p, lce_assoc_p, cce)
+   `declare_bp_bedrock_mem_if_widths(paddr_width_p, did_width_p, lce_id_width_p, lce_assoc_p, cce)
 
    // Tracing parameters
    , parameter cce_trace_p                 = 0
@@ -42,7 +42,7 @@ module testbench
    )
   (output bit reset_i);
 
-  `declare_bp_bedrock_mem_if(paddr_width_p, cce_block_width_p, lce_id_width_p, lce_assoc_p, cce)
+  `declare_bp_bedrock_mem_if(paddr_width_p, did_width_p, lce_id_width_p, lce_assoc_p, cce)
   `declare_bp_cfg_bus_s(hio_width_p, core_id_width_p, cce_id_width_p, lce_id_width_p);
 
   // Bit to deal with initial X->0 transition detection
@@ -93,7 +93,7 @@ module testbench
 
   logic mem_cmd_v_lo, mem_resp_v_li;
   logic mem_cmd_ready_and_lo, mem_resp_ready_and_li;
-  bp_bedrock_cce_mem_msg_header_s mem_cmd_header_lo, mem_resp_header_li;
+  bp_bedrock_cce_mem_header_s mem_cmd_header_lo, mem_resp_header_li;
   logic [l2_fill_width_p-1:0] mem_cmd_data_lo, mem_resp_data_li;
 
   logic [num_caches_p-1:0][trace_replay_data_width_lp-1:0] trace_data_lo;
@@ -296,53 +296,18 @@ module testbench
 
   // Tracers
   bind bp_be_dcache
-    bp_nonsynth_cache_tracer
+    bp_be_nonsynth_dcache_tracer
      #(.bp_params_p(bp_params_p)
-      ,.sets_p(sets_p)
-      ,.assoc_p(assoc_p)
-      ,.block_width_p(block_width_p)
-      ,.fill_width_p(fill_width_p)
-      ,.trace_file_p("dcache"))
+       ,.assoc_p(assoc_p)
+       ,.sets_p(sets_p)
+       ,.block_width_p(block_width_p)
+       ,.fill_width_p(fill_width_p)
+       )
      dcache_tracer
       (.clk_i(clk_i & (testbench.dcache_trace_p == 1))
-       ,.reset_i(reset_i)
-
        ,.freeze_i(cfg_bus_cast_i.freeze)
        ,.mhartid_i(cfg_bus_cast_i.core_id)
-
-       ,.v_tl_r(v_tl_r)
-
-       ,.v_tv_r(v_tv_r)
-       ,.addr_tv_r(paddr_tv_r)
-       ,.lr_miss_tv(lr_miss_tv)
-       ,.sc_op_tv_r(decode_tv_r.sc_op)
-       ,.sc_success(sc_success_tv)
-
-       ,.cache_req_v_o(cache_req_v_o)
-       ,.cache_req_o(cache_req_o)
-       ,.cache_req_metadata_v_o(cache_req_metadata_v_o)
-       ,.cache_req_metadata_o(cache_req_metadata_o)
-       ,.cache_req_complete_i(cache_req_complete_i)
-
-       ,.v_o(early_v_o)
-       ,.load_data(early_data_o[0+:65])
-       ,.store_data(st_data_tv_r[0+:64])
-       ,.wt_req(wt_req)
-       ,.cache_miss_o('0)
-
-       ,.data_mem_v_i(data_mem_v_li)
-       ,.data_mem_pkt_v_i(data_mem_pkt_v_i)
-       ,.data_mem_pkt_i(data_mem_pkt_i)
-       ,.data_mem_pkt_yumi_o(data_mem_pkt_yumi_o)
-
-       ,.tag_mem_v_i(tag_mem_v_li)
-       ,.tag_mem_pkt_v_i(tag_mem_pkt_v_i)
-       ,.tag_mem_pkt_i(tag_mem_pkt_i)
-       ,.tag_mem_pkt_yumi_o(tag_mem_pkt_yumi_o)
-
-       ,.stat_mem_pkt_v_i(stat_mem_pkt_v_i)
-       ,.stat_mem_pkt_i(stat_mem_pkt_i)
-       ,.stat_mem_pkt_yumi_o(stat_mem_pkt_yumi_o)
+       ,.*
        );
 
   if (uce_p == 0) begin
@@ -358,18 +323,24 @@ module testbench
           ,.reset_i(reset_i)
 
           ,.lce_id_i(lce_id_i)
-          ,.lce_req_i(lce_req_o)
+          ,.lce_req_header_i(lce_req_header_o)
+          ,.lce_req_data_i(lce_req_data_o)
           ,.lce_req_v_i(lce_req_v_o)
           ,.lce_req_ready_and_i(lce_req_ready_then_i)
-          ,.lce_resp_i(lce_resp_o)
+          ,.lce_resp_header_i(lce_resp_header_o)
+          ,.lce_resp_data_i(lce_resp_data_o)
           ,.lce_resp_v_i(lce_resp_v_o)
           ,.lce_resp_ready_and_i(lce_resp_ready_then_i)
-          ,.lce_cmd_i(lce_cmd_i)
+          ,.lce_cmd_header_i(lce_cmd_header_i)
+          ,.lce_cmd_data_i(lce_cmd_data_i)
           ,.lce_cmd_v_i(lce_cmd_v_i)
           ,.lce_cmd_ready_and_i(lce_cmd_yumi_o)
-          ,.lce_cmd_o_i(lce_cmd_o)
+          ,.lce_cmd_header_o_i(lce_cmd_header_o)
+          ,.lce_cmd_data_o_i(lce_cmd_data_o)
           ,.lce_cmd_o_v_i(lce_cmd_v_o)
           ,.lce_cmd_o_ready_and_i(lce_cmd_ready_then_i)
+          ,.cache_req_complete_i(cache_req_complete_o)
+          ,.uc_store_req_complete_i(uc_store_req_complete_lo)
           );
 
     bind bp_cce_fsm
