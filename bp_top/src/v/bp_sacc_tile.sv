@@ -268,9 +268,9 @@ module bp_sacc_tile
          ,.io_resp_ready_o(lce_io_resp_ready_and_li)
          );
     end
-  else if (sacc_type_p == e_sacc_loopback)
-    begin: sacc_loopback
-      bp_sacc_loopback
+  else if (sacc_type_p == e_sacc_he_encryption)
+    begin: sacc_he_encryption
+      bp_sacc_he_encryption
        #(.bp_params_p(bp_params_p))
        accelerator_link
         (.clk_i(clk_i)
@@ -278,19 +278,23 @@ module bp_sacc_tile
 
          ,.lce_id_i(lce_id_li)
 
-         ,.io_cmd_i(cce_io_cmd_lo)
+         ,.io_cmd_header_i(cce_io_cmd_header_lo)
+         ,.io_cmd_data_i(cce_io_cmd_data_lo)
          ,.io_cmd_v_i(cce_io_cmd_v_lo)
          ,.io_cmd_ready_o(cce_io_cmd_ready_and_li)
 
-         ,.io_resp_o(cce_io_resp_li)
+         ,.io_resp_header_o(cce_io_resp_header_li)
+         ,.io_resp_data_o(cce_io_resp_data_li)
          ,.io_resp_v_o(cce_io_resp_v_li)
-         ,.io_resp_yumi_i(cce_io_resp_yumi_lo)
+         ,.io_resp_yumi_i(cce_io_resp_ready_and_lo & cce_io_resp_v_li)
 
-         ,.io_cmd_o(lce_io_cmd_li)
+         ,.io_cmd_header_o(lce_io_cmd_header_li)
+         ,.io_cmd_data_o(lce_io_cmd_data_li)
          ,.io_cmd_v_o(lce_io_cmd_v_li)
          ,.io_cmd_yumi_i(lce_io_cmd_yumi_lo)
 
-         ,.io_resp_i(lce_io_resp_lo)
+         ,.io_resp_header_i(lce_io_resp_header_lo)
+         ,.io_resp_data_i(lce_io_resp_data_lo)
          ,.io_resp_v_i(lce_io_resp_v_lo)
          ,.io_resp_ready_o(lce_io_resp_ready_and_li)
          );

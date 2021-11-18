@@ -1,4 +1,4 @@
-VCS_TIMEOUT = 1000ms
+VCS_TIMEOUT = 1000000000ms
 
 $(LINT_DIR)/testbench.sv $(LINT_DIR)/wrapper.sv:
 	@sed "s/BP_CFG_FLOWVAR/$(CFG)/g" $(TB_PATH)/$(TB)/$(@F) > $@
