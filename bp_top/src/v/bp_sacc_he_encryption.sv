@@ -47,7 +47,7 @@ module bp_sacc_he_encryption
   assign io_cmd_ready_o = 1'b1;
   assign io_resp_ready_o = 1'b1;
 
-  logic [31:0] u_spm_data_lo, spm_data_li, csr_data;
+  logic [31:0] u_spm_data_lo, u_spm_data_lo_en, spm_data_li, csr_data;
   logic [paddr_width_p-1:0]  resp_addr;
 
   logic [63:0] dma_address, dma_spm_sel, dma_length, dma_start, dma_done_signal, encryption_done_signal, dma_counter;
@@ -322,17 +322,12 @@ module bp_sacc_he_encryption
 
    wire [29:0] cipher0_in;
    assign cipher0_in = io_cmd_data_i;
-
    wire [29:0] cipher1_in;
    assign cipher1_in = io_cmd_data_i;
-   
    logic [29:0] secret_key_in;
    assign secret_key_in = io_cmd_data_i;
-   
-   
    logic [29:0] message_out;
    assign u_spm_data_lo = message_out;
-
    wire in_ready, out_valid, out_ready, in_valid;
    assign in_valid = io_cmd_v_i;
    
@@ -360,6 +355,47 @@ decryption_seal #(
     .out_ready(out_ready)
 );
 
+   wire [29:0] r0_in;
+   assign r0_in= io_cmd_data_i;
+   wire [29:0] r1_in;
+   assign r1_in= io_cmd_data_i;
+   wire [29:0] me0_in;
+   assign me0_in= io_cmd_data_i;
+   wire [29:0] public_key_a_in;
+   assign public_key_a_in= io_cmd_data_i;
+   wire [29:0] public_key_b_in;
+   assign public_key_b_in= io_cmd_data_i;
+   wire  out_valid_en, out_ready_en;
+   logic [29:0] cipher0_out;
+   assign u_spm_data_lo_en= cipher0_out;
+   logic [29:0] cipher1_out;
+
+  encryption_seal #(
+  .q (1053818881)
+  ,.N (4096)
+  ,.logq (30)
+  ,.logN (12)
+  ,.N_inv (15)
+ ) encryption (
+   .clk(clk_i),
+   .reset_n(reset_i),
+   // Indicate whether all inputs are valid in the current clock
+   .in_valid(in_valid),
+   .r0_in(r0_in),  // u
+   .r1_in(r1_in),  // e1
+   .me0_in(me0_in),  // m + e0
+   .public_key_a_in(public_key_a_in),  // pk1
+   .public_key_b_in(public_key_b_in),  // pk0
+   // Assert when the module can consume the current input
+   .in_ready(in_ready),
+   // Assert when the output data is valid in the corrent clock
+   .out_valid(out_valid_en),
+   .cipher0_out(cipher0_out),
+   .cipher1_out(cipher1_out),
+   // Indicate whether the outside can consume the current output
+   .out_ready(out_ready_en)
+ );
+   
       
   //SPM
 /*  wire [`BSG_SAFE_CLOG2(4096)-1:0] spm_addr_li = spm_addr >> 3;
