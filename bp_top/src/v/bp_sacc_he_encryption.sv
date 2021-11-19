@@ -320,50 +320,41 @@ module bp_sacc_he_encryption
       end
   end
 
-   logic [29:0] r0_in;
+   logic [29:0] cipher0_in;
 
-   logic [29:0] r1_in;
+   logic [29:0] cipher1_in;
 
-   logic [29:0] me0_in;
+   logic [29:0] secret_key_in;
 
-   logic [29:0] public_key_a_in;
-
-   logic [29:0] public_key_b_in;
-
-
-   logic        in_ready, out_valid, out_ready;
-
-   logic [29:0] cipher0_out;
-
-   logic [29:0] cipher1_out;
-
-
-   encryption_seal #(
-                         .q (1053818881)
-                         ,.N (4096)
-                         ,.logq (30)
-                         ,.logN (12)
-                         ,.N_inv (15)
-                     ) encryption (
-                         .clk(clk_i),
-                         .reset_n(reset_i),
-                         // Indicate whether all inputs are valid in the current clock
-                         .in_valid(in_valid),
-                         .r0_in(r0_in),  // u
-                         .r1_in(r1_in),  // e1
-                         .me0_in(me0_in),  // m + e0
-                         .public_key_a_in(public_key_a_in),  // pk1
-                         .public_key_b_in(public_key_b_in),  // pk0
-                         // Assert when the module can consume the current input
-                         .in_ready(in_ready),
-                         // Assert when the output data is valid in the corrent clock
-                         .out_valid(out_valid),
-                         .cipher0_out(cipher0_out),
-                         .cipher1_out(cipher1_out),
-                         // Indicate whether the outside can consume the current output
-                         .out_ready(out_ready)
-                      );
+   logic [29:0] message_out;
    
+
+   logic in_ready, out_valid, out_ready, in_valid;
+
+decryption_seal #(
+    .q  (1053818881),
+    .N  (4096),
+    .logq (30),
+    .logN (12),
+    .N_inv (15)
+) decryption(
+    .clk(clk_i),
+    .reset_n(reset_i),
+    // Indicate whether all inputs are valid in the current clock
+    .in_valid(in_valid),
+    .cipher0_in(cipher0_in),
+    .cipher1_in(cipher1_in),
+    .secret_key_in(secret_key_in),
+    // Assert when the module can consume the current input
+    .in_ready(in_ready),
+    // Assert when the output data is valid in the corrent clock
+    .out_valid(out_valid),
+    .message_out(message_out),
+    // Indicate whether the outside can consume the current output
+    .out_ready(out_ready)
+);
+
+      
   //SPM
 /*  wire [`BSG_SAFE_CLOG2(4096)-1:0] spm_addr_li = spm_addr >> 3;
 
