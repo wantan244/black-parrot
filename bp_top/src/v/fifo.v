@@ -14,34 +14,48 @@ module fifo #(
 
   reg [ADDR_WIDTH:0] w_ptr, r_ptr;  //read pointer and write pointer
   wire [ADDR_WIDTH:0] depth;
-  wire w_en_q, r_en_q;  // read and write enable qualified
+  //wire w_en_q, r_en_q;  // read and write enable qualified
 
-  reg [DATA_WIDTH-1:0] data[(2**ADDR_WIDTH)-1:0];  // data storage
+  //reg [DATA_WIDTH-1:0] data[(2**ADDR_WIDTH)-1:0];  // data storage
 
   wire [ADDR_WIDTH:0] EMPTY_DEPTH = {(ADDR_WIDTH + 1) {1'b0}};
   wire [ADDR_WIDTH:0] FULL_DEPTH = {1'b1, {(ADDR_WIDTH) {1'b0}}};
 
-  assign depth = w_ptr - r_ptr;
-  assign n_full = (depth != FULL_DEPTH);
-  assign n_empty = (depth != EMPTY_DEPTH);
+  //assign depth = w_ptr - r_ptr;
+  //assign n_full = (depth != FULL_DEPTH);
+  //assign n_empty = (depth != EMPTY_DEPTH);
 
-  assign w_en_q = (n_full) & w_en;
-  assign r_en_q = (n_empty) & r_en;
-  assign data_out = data[r_ptr[ADDR_WIDTH-1:0]];
+  //assign w_en_q = (n_full) & w_en;
+  //assign r_en_q = (n_empty) & r_en;
+  //assign data_out = data[r_ptr[ADDR_WIDTH-1:0]];
 
   always @(posedge clk, negedge reset_n) begin
     if (!reset_n) begin
       w_ptr <= EMPTY_DEPTH;
       r_ptr <= EMPTY_DEPTH;
     end else begin
-      if (w_en_q) begin
-        data[w_ptr[ADDR_WIDTH-1:0]] <= data_in;
+      if (w_en) begin
+        //data[w_ptr[ADDR_WIDTH-1:0]] <= data_in;
         w_ptr <= w_ptr + 1;
       end
-      if (r_en_q) r_ptr <= r_ptr + 1;
+      if (r_en) r_ptr <= r_ptr + 1;
     end
   end
+bsg_mem_1r1w_sync
+     #(.width_p(DATA_WIDTH), .els_p(2**ADDR_WIDTH))
+      in_mem
+            (.clk_i(clk)
+                  ,.reset_i(reset_n)
 
+                  ,.w_v_i(w_en)
+                  ,.w_addr_i(w_ptr)
+                  ,.w_data_i(data_in)
+
+                  ,.r_v_i(r_en)
+                  ,.r_addr_i(r_ptr)
+                  ,.r_data_o(data_out)
+             );
+   
 endmodule
 
 
@@ -64,25 +78,25 @@ module fifo_2rp #(
 );
 
   reg [ADDR_WIDTH:0] w_ptr, r_ptr1, r_ptr2;  //read pointer and write pointer
-  wire [ADDR_WIDTH:0] depth1, depth2;
-  wire w_en_q, r_en_q1, r_en_q2;  // read and write enable qualified
+  //wire [ADDR_WIDTH:0] depth1, depth2;
+  //wire w_en_q, r_en_q1, r_en_q2;  // read and write enable qualified
 
-  reg [DATA_WIDTH-1:0] data[(2**ADDR_WIDTH)-1:0];  // data storage
+  //reg [DATA_WIDTH-1:0] data[(2**ADDR_WIDTH)-1:0];  // data storage
 
   wire [ADDR_WIDTH:0] EMPTY_DEPTH = {(ADDR_WIDTH + 1) {1'b0}};
   wire [ADDR_WIDTH:0] FULL_DEPTH = {1'b1, {(ADDR_WIDTH) {1'b0}}};
 
-  assign depth1 = w_ptr - r_ptr1;
-  assign depth2 = w_ptr - r_ptr2;
-  assign n_full = (depth1 != FULL_DEPTH) && (depth2 != FULL_DEPTH);
-  assign n_empty1 = (depth1 != EMPTY_DEPTH);
-  assign n_empty2 = (depth2 != EMPTY_DEPTH);
+  //assign depth1 = w_ptr - r_ptr1;
+  //assign depth2 = w_ptr - r_ptr2;
+  //assign n_full = (depth1 != FULL_DEPTH) && (depth2 != FULL_DEPTH);
+  //assign n_empty1 = (depth1 != EMPTY_DEPTH);
+  //assign n_empty2 = (depth2 != EMPTY_DEPTH);
 
-  assign w_en_q = n_full && w_en;
-  assign r_en_q1 = n_empty1 && r_en1;
-  assign r_en_q2 = n_empty2 && r_en2;
-  assign data_out1 = data[r_ptr1[ADDR_WIDTH-1:0]];
-  assign data_out2 = data[r_ptr2[ADDR_WIDTH-1:0]];
+  //assign w_en_q = n_full && w_en;
+  //assign r_en_q1 = n_empty1 && r_en1;
+  //assign r_en_q2 = n_empty2 && r_en2;
+  //assign data_out1 = data[r_ptr1[ADDR_WIDTH-1:0]];
+  //assign data_out2 = data[r_ptr2[ADDR_WIDTH-1:0]];
 
   always @(posedge clk, negedge reset_n) begin
     if (!reset_n) begin
@@ -90,13 +104,31 @@ module fifo_2rp #(
       r_ptr1 <= EMPTY_DEPTH;
       r_ptr2 <= EMPTY_DEPTH;
     end else begin
-      if (w_en_q) begin
-        data[w_ptr[ADDR_WIDTH-1:0]] <= data_in;
+      if (w_en) begin
+        //data[w_ptr[ADDR_WIDTH-1:0]] <= data_in;
         w_ptr <= w_ptr + 1;
       end
-      if (r_en_q1) r_ptr1 <= r_ptr1 + 1;
-      if (r_en_q2) r_ptr2 <= r_ptr2 + 1;
+      if (r_en1) r_ptr1 <= r_ptr1 + 1;
+      if (r_en2) r_ptr2 <= r_ptr2 + 1;
     end
   end
+ bsg_mem_2r1w_sync
+          #(.width_p(DATA_WIDTH), .els_p(2**ADDR_WIDTH))
+          in_mem
+                    (.clk_i(clk)
+                     ,.reset_i(reset_n)
 
+                     ,.w_v_i(w_en)
+                     ,.w_addr_i(w_ptr)
+                     ,.w_data_i(data_in)
+
+                     ,.r0_v_i(r_en1)
+                     ,.r0_addr_i(r_ptr1)
+                     ,.r0_data_o(data_out1)
+
+                     ,.r1_v_i(r_en2)
+                     ,.r1_addr_i(r_ptr2)
+                     ,.r1_data_o(data_out2)
+                     );
+   
 endmodule
