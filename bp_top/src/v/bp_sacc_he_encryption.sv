@@ -320,16 +320,22 @@ module bp_sacc_he_encryption
       end
   end
 
-   logic [29:0] cipher0_in;
+   wire [29:0] cipher0_in;
+   assign cipher0_in = io_cmd_data_i;
 
-   logic [29:0] cipher1_in;
-
-   logic [29:0] secret_key_in;
-
-   logic [29:0] message_out;
+   wire [29:0] cipher1_in;
+   assign cipher1_in = io_cmd_data_i;
    
+   logic [29:0] secret_key_in;
+   assign secret_key_in = io_cmd_data_i;
+   
+   
+   logic [29:0] message_out;
+   assign u_spm_data_lo = message_out;
 
-   logic in_ready, out_valid, out_ready, in_valid;
+   wire in_ready, out_valid, out_ready, in_valid;
+   assign in_valid = io_cmd_v_i;
+   
 
 decryption_seal #(
     .q  (1053818881),
