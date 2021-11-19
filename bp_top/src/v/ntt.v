@@ -38,7 +38,7 @@ module ntt #(
   reg [logq-1:0] a[0:N-1];
 
 
-  initial begin
+/*  initial begin
     if (N == 8) begin
       $readmemh("wN8.mem", w, 0, N - 1);
       $readmemh("phiN8.mem", phi, 0, N - 1);
@@ -50,7 +50,7 @@ module ntt #(
       $readmemh("phi_N4096_q0.mem", phi, 0, N - 1);
     end
   end
-
+*/
   genvar i;
   generate
     for (i = 0; i < logN; i = i + 1) begin

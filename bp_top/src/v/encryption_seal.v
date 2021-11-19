@@ -117,21 +117,19 @@ module encryption_seal #(
   // wire a_n_full;
   wire a_n_empty;
 
-     bsg_mem_1r1w_sync
-          #(.width_p(logq), .els_p(N))
-     a_fifo
-            (.clk_i(clk_i)
-                  ,.reset_i(reset_i)
-
-                  ,.w_v_i(a_ntt_out_valid)
-                  ,.w_addr_i(0)
-                  ,.w_data_i(a_ntt_poly_out)
-
-                  ,.r_v_i(a_ren)
-                  ,.r_addr_i(0)
-                  ,.r_data_o(a_dout)
-             );
-   
+  fifo #(
+      .DATA_WIDTH(logq),
+      .ADDR_WIDTH(logN)
+  ) a_fifo (
+      .clk     (clk),
+      .reset_n (reset_n),
+      .w_en    (a_ntt_out_valid),
+      .data_in (a_ntt_poly_out),
+      .r_en    (a_ren),
+      .data_out(a_dout),
+      .n_full  (a_ntt_out_ready),
+      .n_empty (a_n_empty)
+  );
 
   wire b_ntt_in_ready;
   wire b_ntt_out_valid;
@@ -163,20 +161,19 @@ module encryption_seal #(
   // wire b_n_full;
   wire b_n_empty;
 
-     bsg_mem_1r1w_sync
-          #(.width_p(logq), .els_p(N))
-      b_fifo
-            (.clk_i(clk_i)
-             ,.reset_i(reset_i)
-
-             ,.w_v_i(b_ntt_out_valid)
-             ,.w_addr_i(0)
-             ,.w_data_i(b_ntt_poly_out)
-
-             ,.r_v_i(b_ren)
-             ,.r_addr_i(0)
-             ,.r_data_o(b_dout)
-             );
+  fifo #(
+      .DATA_WIDTH(logq),
+      .ADDR_WIDTH(logN)
+  ) b_fifo (
+      .clk     (clk),
+      .reset_n (reset_n),
+      .w_en    (b_ntt_out_valid),
+      .data_in (b_ntt_poly_out),
+      .r_en    (b_ren),
+      .data_out(b_dout),
+      .n_full  (b_ntt_out_ready),
+      .n_empty (b_n_empty)
+  );
 
 
   wire r0_ntt_in_ready;
@@ -211,27 +208,24 @@ module encryption_seal #(
   wire r0_n_empty1;
   wire r0_n_empty2;
 
+  fifo_2rp #(
+      .DATA_WIDTH(logq),
+      .ADDR_WIDTH(logN)
+  ) r0_fifo (
+      .clk      (clk),
+      .reset_n  (reset_n),
+      .w_en     (r0_ntt_out_valid),
+      .data_in  (r0_ntt_poly_out),
+      .r_en1    (r0_ren1),
+      .data_out1(r0_dout1),
+      .r_en2    (r0_ren2),
+      .data_out2(r0_dout2),
+      .n_full   (r0_ntt_out_ready),
+      .n_empty1 (r0_n_empty1),
+      .n_empty2 (r0_n_empty2)
+  );
 
 
-bsg_mem_2r1w_sync
-         #(.width_p(logq), .els_p(N))
-          r0_fifo
-          (.clk_i(clk_i)
-           ,.reset_i(reset_i)
-
-           ,.w_v_i(r0_ntt_out_valid)
-           ,.w_addr_i(0)
-           ,.w_data_i(r0_ntt_poly_out)
-
-           ,.r0_v_i(r0_ren1)
-           ,.r0_addr_i(0)
-           ,.r0_data_o(r0_dout1)
-
-           ,.r1_v_i(r0_ren2)
-           ,.r1_addr_i(0)
-           ,.r1_data_o(r0_dout2)
-         );
-   
   wire r1_ntt_in_ready;
   wire r1_ntt_out_valid;
   wire [logq-1:0] r1_ntt_poly_out;
@@ -261,20 +255,19 @@ bsg_mem_2r1w_sync
   // wire r1_n_full;
   wire r1_n_empty;
 
-     bsg_mem_1r1w_sync
-          #(.width_p(logq), .els_p(N))
-      r1_fifo
-            (.clk_i(clk_i)
-             ,.reset_i(reset_i)
-
-             ,.w_v_i(r1_ntt_out_valid)
-             ,.w_addr_i(0)
-             ,.w_data_i(r1_ntt_poly_out)
-
-             ,.r_v_i(r1_ren)
-             ,.r_addr_i(0)
-             ,.r_data_o(r1_dout)
-             );
+  fifo #(
+      .DATA_WIDTH(logq),
+      .ADDR_WIDTH(logN)
+  ) r1_fifo (
+      .clk     (clk),
+      .reset_n (reset_n),
+      .w_en    (r1_ntt_out_valid),
+      .data_in (r1_ntt_poly_out),
+      .r_en    (r1_ren),
+      .data_out(r1_dout),
+      .n_full  (r1_ntt_out_ready),
+      .n_empty (r1_n_empty)
+  );
 
 
   wire r2_ntt_in_ready;
@@ -306,20 +299,20 @@ bsg_mem_2r1w_sync
   // wire r2_n_full;
   wire r2_n_empty;
 
-bsg_mem_1r1w_sync
-          #(.width_p(logq), .els_p(N))
-      r2_fifo
-            (.clk_i(clk_i)
-             ,.reset_i(reset_i)
+  fifo #(
+      .DATA_WIDTH(logq),
+      .ADDR_WIDTH(logN)
+  ) r2_fifo (
+      .clk     (clk),
+      .reset_n (reset_n),
+      .w_en    (r2_ntt_out_valid),
+      .data_in (r2_ntt_poly_out),
+      .r_en    (r2_ren),
+      .data_out(r2_dout),
+      .n_full  (r2_ntt_out_ready),
+      .n_empty (r2_n_empty)
+  );
 
-             ,.w_v_i(r2_ntt_out_valid)
-             ,.w_addr_i(0)
-             ,.w_data_i(r2_ntt_poly_out)
-
-             ,.r_v_i(r2_ren)
-             ,.r_addr_i(0)
-             ,.r_data_o(r2_dout)
-             );
 
 
   // ar0_fifo
@@ -330,20 +323,20 @@ bsg_mem_1r1w_sync
   wire ar0_n_full;
   wire ar0_n_empty;
 
-bsg_mem_1r1w_sync
-          #(.width_p(logq), .els_p(N))
-      ar0_fifo
-            (.clk_i(clk_i)
-             ,.reset_i(reset_i)
+  fifo #(
+      .DATA_WIDTH(logq),
+      .ADDR_WIDTH(logN)
+  ) ar0_fifo (
+      .clk     (clk),
+      .reset_n (reset_n),
+      .w_en    (ar0_wen),
+      .data_in (ar0_din),
+      .r_en    (ar0_ren),
+      .data_out(ar0_dout),
+      .n_full  (ar0_n_full),
+      .n_empty (ar0_n_empty)
+  );
 
-             ,.w_v_i(ar0_wen)
-             ,.w_addr_i(0)
-             ,.w_data_i(ar0_din)
-
-             ,.r_v_i(ar0_ren)
-             ,.r_addr_i(0)
-             ,.r_data_o(ar0_dout)
-             );
 
   // br0_fifo
   reg br0_wen;
@@ -353,21 +346,19 @@ bsg_mem_1r1w_sync
   wire br0_n_full;
   wire br0_n_empty;
 
-
-bsg_mem_1r1w_sync
-          #(.width_p(logq), .els_p(N))
-      br0_fifo
-            (.clk_i(clk_i)
-             ,.reset_i(reset_i)
-
-             ,.w_v_i(br0_wen)
-             ,.w_addr_i(0)
-             ,.w_data_i(br0_din)
-
-             ,.r_v_i(br0_ren)
-             ,.r_addr_i(0)
-             ,.r_data_o(br0_dout)
-             );
+  fifo #(
+      .DATA_WIDTH(logq),
+      .ADDR_WIDTH(logN)
+  ) br0_fifo (
+      .clk     (clk),
+      .reset_n (reset_n),
+      .w_en    (br0_wen),
+      .data_in (br0_din),
+      .r_en    (br0_ren),
+      .data_out(br0_dout),
+      .n_full  (br0_n_full),
+      .n_empty (br0_n_empty)
+  );
 
 
   // br0r2_fifo
@@ -378,21 +369,19 @@ bsg_mem_1r1w_sync
   wire br0r2_n_full;
   wire br0r2_n_empty;
 
-bsg_mem_1r1w_sync
-          #(.width_p(logq), .els_p(N))
-      br0r2_fifo
-            (.clk_i(clk_i)
-             ,.reset_i(reset_i)
-
-             ,.w_v_i(br0r2_wen)
-             ,.w_addr_i(0)
-             ,.w_data_i(br0r2_din)
-
-             ,.r_v_i(out_ready && out_valid)
-             ,.r_addr_i(0)
-             ,.r_data_o(cipher0_out)
-             );
-
+  fifo #(
+      .DATA_WIDTH(logq),
+      .ADDR_WIDTH(logN)
+  ) br0r2_fifo (
+      .clk     (clk),
+      .reset_n (reset_n),
+      .w_en    (br0r2_wen),
+      .data_in (br0r2_din),
+      .r_en    (out_ready && out_valid),
+      .data_out(cipher0_out),
+      .n_full  (br0r2_n_full),
+      .n_empty (br0r2_n_empty)
+  );
 
 
   // ar0r1_fifo
@@ -403,20 +392,20 @@ bsg_mem_1r1w_sync
   wire ar0r1_n_full;
   wire ar0r1_n_empty;
 
-bsg_mem_1r1w_sync
-          #(.width_p(logq), .els_p(N))
-      ar0r1_fifo
-            (.clk_i(clk_i)
-             ,.reset_i(reset_i)
+  fifo #(
+      .DATA_WIDTH(logq),
+      .ADDR_WIDTH(logN)
+  ) ar0r1_fifo (
+      .clk     (clk),
+      .reset_n (reset_n),
+      .w_en    (ar0r1_wen),
+      .data_in (ar0r1_din),
+      .r_en    (out_ready && out_valid),
+      .data_out(cipher1_out),
+      .n_full  (ar0r1_n_full),
+      .n_empty (ar0r1_n_empty)
+  );
 
-             ,.w_v_i(ar0r1_wen)
-             ,.w_addr_i(0)
-             ,.w_data_i(ar0r1_din)
-
-             ,.r_v_i(out_ready && out_valid)
-             ,.r_addr_i(0)
-             ,.r_data_o(cipher1_out)
-             );
 
   // // Debug output
   // integer fin, fout;
