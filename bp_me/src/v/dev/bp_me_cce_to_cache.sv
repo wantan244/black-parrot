@@ -52,6 +52,19 @@ module bp_me_cce_to_cache
    , input [l2_banks_p-1:0][l2_data_width_p-1:0]           cache_data_i
    , input [l2_banks_p-1:0]                                cache_data_v_i
    , output logic [l2_banks_p-1:0]                         cache_data_yumi_o
+
+   , output logic                                          bypass_dma_v_o
+   , output logic [dma_pkt_width_lp-1:0]                   bypass_dma_pkt_o
+   , output logic                                          bypass_dma_pkt_v_o
+   , input                                                 bypass_dma_pkt_ready_and_i
+
+   , input [l2_fill_width_p-1:0]                           bypass_dma_data_i
+   , input                                                 bypass_dma_data_v_i
+   , output logic                                          bypass_dma_data_ready_and_o
+
+   , output logic [l2_fill_width_p-1:0]                    bypass_dma_data_o
+   , output logic                                          bypass_dma_data_v_o
+   , input                                                 bypass_dma_data_ready_and_i
    );
 
   // L2 derived params
@@ -65,16 +78,21 @@ module bp_me_cce_to_cache
   localparam data_byte_offset_width_lp = `BSG_SAFE_CLOG2(data_bytes_lp);
 
   `declare_bsg_cache_pkt_s(daddr_width_p, l2_data_width_p);
+  `declare_bsg_cache_dma_pkt_s(daddr_width_p);
   `declare_bp_bedrock_mem_if(paddr_width_p, did_width_p, lce_id_width_p, lce_assoc_p, cce);
   `declare_bp_memory_map(paddr_width_p, daddr_width_p);
 
   bsg_cache_pkt_s cache_pkt;
   assign cache_pkt_o = {l2_banks_p{cache_pkt}};
 
-  enum logic [1:0] {e_reset, e_clear_tag, e_ready} state_n, state_r;
+  bsg_cache_dma_pkt_s bypass_dma_pkt;
+  assign bypass_dma_pkt_o = bypass_dma_pkt;
+
+  enum logic [1:0] {e_reset, e_clear_tag, e_ready, e_bypass} state_n, state_r;
   wire is_reset  = (state_r == e_reset);
   wire is_clear  = (state_r == e_clear_tag);
   wire is_ready  = (state_r == e_ready);
+  wire is_bypass = (state_r == e_bypass);
 
   logic [lg_l2_blocks_lp:0] tagst_sent_r, tagst_sent_n;
   logic [lg_l2_blocks_lp:0] tagst_received_r, tagst_received_n;
@@ -118,8 +136,12 @@ module bp_me_cce_to_cache
   assign local_addr_cast = mem_cmd_header_lo.addr;
 
   wire is_word_op = (mem_cmd_header_lo.size == e_bedrock_msg_size_4);
-  wire is_csr     = (mem_cmd_header_lo.addr < dram_base_addr_gp);
-  wire is_tagfl   = is_csr && (local_addr_cast.addr == cache_tagfl_addr_gp);
+  wire is_csr   = (mem_cmd_header_lo.addr < dram_base_addr_gp);
+  wire is_tagfl = is_csr && (local_addr_cast.dev == cache_tagfl_base_addr_gp);
+  // Currently can only bypass full lines due to bsg_cache_dma_pkt limitation
+  wire is_bypass = (mem_cmd_header_lo.msg_type inside {e_bedrock_mem_wr, e_bedrock_mem_rd})
+    & ((1'b1 << mem_cmd_header_lo.size) == (l2_block_size_p>>3));
+  localparam tagfl_addr_pad_lp = (daddr_width_p-(lg_l2_sets_lp+lg_l2_ways_lp+l2_block_offset_width_lp));
   wire [daddr_width_p-1:0] tagfl_addr = mem_cmd_data_lo[0+:lg_l2_sets_lp+lg_l2_assoc_lp] << l2_block_offset_width_lp;
 
   // cache packet data and mask mux elements
@@ -333,6 +355,13 @@ module bp_me_cce_to_cache
 
       state_n  = state_r;
 
+      bypass_dma_v_o = '0;
+      bypass_dma_pkt = '0;
+      bypass_dma_pkt_v_o = '0;
+      bypass_dma_data_ready_and_o = '0;
+      bypass_dma_data_o = '0;
+      bypass_dma_data_v_o = '0;
+
       case (state_r)
         e_reset:
           begin
@@ -404,6 +433,19 @@ module bp_me_cce_to_cache
               begin
                 cache_pkt.opcode = TAGFL;
                 cache_pkt.addr = tagfl_addr;
+                cache_pkt_v_o = mem_cmd_v_lo;
+                cache_pkt_v_o[cache_cmd_bank_lo] = stream_fifo_ready_lo & mem_cmd_v_lo;
+                mem_cmd_yumi_li = mem_cmd_v_lo & stream_fifo_ready_lo & cache_pkt_ready_and_i[cache_cmd_bank_lo];
+              end
+            else if (is_bypass)
+              begin
+                bypass_dma_v_o = mem_cmd_v_lo;
+                bypass_dma_pkt = '{write_not_read: mem_cmd_header_lo.msg_type inside {e_bedrock_mem_wr}
+                                   ,mem_cmd_header_lo.addr
+                                   };
+                bypass_dma_pkt_v_o = mem_cmd_v_lo;
+
+                cmd_state_n = (bypass_dma_pkt_ready_and_i & bypass_dma_pkt_v_o) ? BYPASS : READY;
               end
             else
               begin
@@ -412,12 +454,26 @@ module bp_me_cce_to_cache
                 // This mask is only used for the LM/SM operations for >64 bit mask operations,
                 // but it gets set regardless of operation
                 cache_pkt.mask = cache_pkt_mask_lo;
+                cache_pkt_v_o[cache_cmd_bank_lo] = stream_fifo_ready_lo & mem_cmd_v_lo;
+                mem_cmd_yumi_li = mem_cmd_v_lo & stream_fifo_ready_lo & cache_pkt_ready_and_i[cache_cmd_bank_lo];
               end
-            cache_pkt_v_o[cache_cmd_bank_lo] = stream_fifo_ready_lo & mem_cmd_v_lo;
-            mem_cmd_yumi_li = mem_cmd_v_lo & stream_fifo_ready_lo & cache_pkt_ready_and_i[cache_cmd_bank_lo];
 
+            // TODO: Need to not start bypass until everything is set
             mem_resp_v_li = mem_header_v_lo & cache_data_v_i[cache_resp_bank_lo];
             cache_data_yumi_o[cache_resp_bank_lo] = mem_resp_v_li & mem_resp_ready_and_lo;
+          end
+        BYPASS_SEND:
+          begin
+            bypass_dma_data_i
+            bypass_dma_data_v_i
+            bypass_dma_data_ready_and_o
+
+            bypass_dma_data_o = mem_cmd_data_lo;
+            bypass_dma_data_v_o = mem_cmd_v_lo;
+
+            mem_cmd_yumi_li = bypass_dma_data_ready_and_i & bypass_dma_data_v_o;
+
+            state_n = (mem_cmd_last_lo & mem_cmd_yumi_li) ? READY : 
           end
         default: begin end
       endcase

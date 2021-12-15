@@ -89,9 +89,6 @@ module bp_nonsynth_if_verif
   if (l2_block_width_p != 512)
     $error("L2 block width must be 512");
 
-  //if (bht_entry_width_p/2 < 2 || bht_entry_width_p/2*2 != bht_entry_width_p)
-  //  $warning("BHT fold width must be power of 2 greater than 2");
-
   if (vaddr_width_p != 39)
     $warning("Warning: VM will not work without 39 bit vaddr");
   if (paddr_width_p < 33)
@@ -101,7 +98,7 @@ module bp_nonsynth_if_verif
   if (caddr_width_p < 31)
     $warning("Warning: caddr < 31 has not been tested");
   if (caddr_width_p >= daddr_width_p)
-    $warning("Warning: caddr must <= daddr");
+    $error("Error: caddr must < daddr");
   if (daddr_width_p >= paddr_width_p)
     $error("Error: caddr cannot exceed paddr_width_p-1");
 
@@ -131,6 +128,8 @@ module bp_nonsynth_if_verif
 
   if (!`BSG_IS_POW2(l2_banks_p))
     $error("L2 banks must be a power of two");
+  if (l2_en_p == 0 && (icache_block_width_p != l2_block_width_p || dcache_block_width_p != l2_block_width_p))
+    $error("L2 bypass only works with l2_block_width_p == icache/dcache_block_width_p");
 
 endmodule
 

@@ -138,5 +138,48 @@ module bp_me_cache_slice
          );
     end
 
+  // TODO: Connect, what to do about L2 banks, + bypass?
+  localparam dma_pkt_width_lp = `bsg_cache_dma_pkt_width(daddr_width_p)
+  `declare_bsg_cache_dma_pkt_s(daddr_width_p);
+  logic bypass_dma_v_lo;
+  bsg_cache_dma_pkt_s bypass_dma_pkt_lo;
+  logic bypass_dma_pkt_v_lo, bypass_dma_pkt_ready_and_li;
+  logic [l2_fill_width_p-1:0] bypass_dma_data_lo;
+  logic bypass_dma_data_v_lo, bypass_dma_data_ready_and_li;
+  logic [l2_fill_width_p-1:0] bypass_dma_data_li;
+  logic bypass_dma_data_v_li, bypass_dma_data_ready_and_lo;
+
+  bsg_cache_dma_pkt_s cache_dma_pkt_s;
+  logic cache_dma_v_lo, cache_dma_ready_and_li;
+  logic [l2_fill_width_p-1:0] cache_dma_data_lo;
+  logic cache_dma_data_v_lo, cache_dma_data_ready_and_li;
+  logic [l2_fill_width_p-1:0] cache_dma_data_li;
+  logic cache_dma_data_v_li, cache_dma_data_ready_and_lo;
+
+  // TODO: If bsg_cache implements pre-fetching, this all starts to fail
+  //   because the requests are not mutex
+  assign dma_pkt_o = bypass_dma_v_lo ? bypass_dma_pkt_lo : cache_dma_pkt_lo;
+  assign dma_pkt_v_o = bypass_dma_v_lo ? bypass_dma_pkt_v_lo : cache_dma_pkt_v_lo;
+  assign bypass_dma_pkt_ready_and_li = dma_pkt_ready_and_i;
+  assign cache_dma_pkt_ready_and_li = dma_pkt_ready_and_i;
+
+  assign dma_data_o = bypass_dma_v_lo ? bypass_dma_data_lo : cache_dma_data_lo;
+  assign dma_data_v_o = bypass_dma_v_lo ? bypass_dma_data_v_lo : cache_dma_data_v_lo;
+  assign bypass_dma_data_ready_and_li = dma_data_ready_and_i;
+  assign cache_dma_data_ready_and_li = dma_data_ready_and_i;
+
+  assign bypass_dma_data_li = dma_data_i;
+  assign cache_dma_data_li = dma_data_i;
+  assign bypass_dma_data_v_li = bypass_dma_v_lo & dma_data_v_i;
+  assign cache_dma_data_v_li = ~bypass_dma_v_lo & dma_data_v_i;
+  assign dma_ready_and_o = bypass_dma_v_lo ? bypass_dma_data_ready_and_lo : cache_dma_data_ready_and_lo;
+
+  `declare_bsg_cache_pkt_s(daddr_width_p, l2_data_width_p);
+  bsg_cache_pkt_s cache_pkt_li;
+  logic cache_pkt_v_li, cache_pkt_ready_and_lo;
+  logic [l2_data_width_p-1:0] cache_data_lo;
+  logic cache_data_v_lo, cache_data_yumi_li;
+
+
 endmodule
 
