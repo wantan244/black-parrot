@@ -80,13 +80,15 @@ module bp_sacc_he_encryption
    
    assign io_resp_data_o = csr_data;
    assign io_resp_v_o = resp_v_lo;
-///////////////////////////////////DMA_FSM///////////////////////////////////////////
-   logic                      dma_start, dma_done;
-   logic [63:0]               dma_address, dma_cntr;
+   /////////////////////////////////////////////////////////////////////////////////////   
+   ///////////////////////////////////DMA_FSM///////////////////////////////////////////
+   logic                        dma_start, dma_done, dma_io_cmd_v_o;
+   logic [63:0]                 dma_addr, dma_cntr, dma_len;
+   bp_bedrock_cce_mem_header_s  dma_io_cmd_header_cast_o;
+   logic [cce_block_width_p-1:0] dma_io_cmd_data_o;
    
    typedef enum logic [2:0]{
                             RESET_DMA
-                            , WAIT_START
                             , FETCH
                             , WAIT_DMA
                             , DONE_DMA
@@ -97,12 +99,12 @@ module bp_sacc_he_encryption
       if(reset_i) begin
          state_dma_r <= RESET_DMA;
          dma_cntr <= '0;
+         
       end
       else begin
          state_dma_r <= state_dma_n;
-         dma_done <= (n == dma_cntr);
-         dma_cntr <= state_dma_n >= WAIT_DMA ? '0 : (io_resp_v_i ? dma_cntr + 1: dma_cntr);
-         
+         dma_done <= (dma_len-1 == dma_cntr);
+         dma_cntr <= state_dma_n > WAIT_DMA ? '0 : (io_resp_v_i ? dma_cntr + 1: dma_cntr);
       end
    end
 
@@ -111,45 +113,34 @@ module bp_sacc_he_encryption
       case (state_dma_r)
         RESET_DMA:
           begin
-             state_dma_n = reset_i ?  WAIT_START : RESET_DMA;
-             done_dma = 0;
-             io_cmd_v_o = 0;
-             io_cmd_header_cast_o = '0;
-             
-          end
-        WAIT_START:
-          begin
-             state_dma_n = start_dma ? FETCH : WAIT_START;
-             done_dma = 0;
-             io_cmd_v_o = 0;
-             io_cmd_header_cast_o = '0;
+             state_dma_n = dma_start ?  FETCH : RESET_DMA;
+             dma_io_cmd_v_o = 0;
+             dma_io_cmd_header_cast_o = '0;
              
           end
         FETCH:
           begin
-             state_dma_n = (n-1 == dma_cntr) ?  DONE_DMA : WAIT_DMA;
-             io_cmd_v_o = 1;
-             done_dma = 0;
-             io_cmd_header_cast_o.size = e_bedrock_msg_size_4;
-             io_cmd_header_cast_o.payload = cmd_payload;
-             io_cmd_header_cast_o.addr = dma_address + (dma_cntr*4) ;
-             io_cmd_header_cast_o ;
+             state_dma_n = (dma_len-1 == dma_cntr) ?  DONE_DMA : WAIT_DMA;
+             dma_io_cmd_v_o = 1;
+             dma_io_cmd_header_cast_o.size = e_bedrock_msg_size_4;
+             dma_io_cmd_header_cast_o.payload = cmd_payload;
+             dma_io_cmd_header_cast_o.addr = dma_addr + (dma_cntr*4) ;
+             dma_io_cmd_header_cast_o.msg_type.mem <= e_bedrock_mem_uc_rd;
+             
              
           end
         WAIT_DMA:
           begin
              state_dma_n = io_resp_v_i ? FETCH : WAIT_DMA;
-             done_dma = 0;
-             io_cmd_v_o = 0;
-             io_cmd_header_cast_o = '0;
+             dma_io_cmd_v_o = 0;
+             dma_io_cmd_header_cast_o = '0;
              
           end
         DONE_DMA:
           begin
              state_dma_n = RESET_DMA;
-             done_dma = 1;
-             io_cmd_v_o = 0;
-             io_cmd_header_cast_o = '0;
+             dma_io_cmd_v_o = 0;
+             dma_io_cmd_header_cast_o = '0;
              
           end
       endcase 
@@ -160,12 +151,12 @@ module bp_sacc_he_encryption
    ////cfg registers
    logic [31:0] q, n, a_ptr, b_ptr, c_ptr;
    logic        cfg_start, cfg_done, enc_dec, res_stat;
-
-   logic        ntt_done;
-   
+   logic        ntt_done, ntt_io_cmd_v_o, add_done, mult_done;
+   bp_bedrock_cce_mem_header_s  ntt_io_cmd_header_cast_o;
+   logic [cce_block_width_p-1:0] ntt_io_cmd_data_o;
+  
    typedef enum logic [3:0]{
                             RESET
-                            , IDLE
                             , CFG
                             , LOAD_A //full_buffer_count = 1
                             , NTT_A  //takes one cycle, full_buffer_count = 1
@@ -174,6 +165,7 @@ module bp_sacc_he_encryption
                             , MULT   //takes one cycle, call point_wise mul, writeback the resutls to A, full_buffer_count = 2
                             , LOAD_C //load c regardless of MULT state
                             , ADD
+                            , WB_RES
                             , DONE
                             } state_e;
    state_e state_r, state_n;
@@ -181,6 +173,8 @@ module bp_sacc_he_encryption
    always_ff @(posedge clk_i) begin
       if(reset_i) begin
          state_r <= RESET;
+         cfg_start <= 0;
+         cfg_done <= 0;
       end
       else begin
          state_r <= state_n;
@@ -257,120 +251,208 @@ module bp_sacc_he_encryption
       case (state_r)
         RESET:
           begin
-             state_n = reset_i ? IDLE : RESET;
-             start_dma = 0;
-             dma_address = 0;
-             
-          end
-        IDLE:
-          begin
-             state_n = cfg_start ? CFG : IDLE;
-             start_dma = 0;
-             dma_address = 0;
+             state_n = cfg_start ? CFG : RESET;
+             dma_start = 0;
+             dma_addr = 0;
+             dma_len = 0;
+             ntt_io_cmd_v_o = '0;
+             ntt_io_cmd_header_cast_o = '0;
+             ntt_io_cmd_data_o = '0;
              
           end
         CFG:
           begin
              state_n = cfg_done ? LOAD_A : CFG;
-             start_dma = 0;
-             dma_address =0 ;
+             dma_start = 0;
+             dma_addr =0 ;
+             dma_len = 0;
+             ntt_io_cmd_v_o = '0;
+             ntt_io_cmd_header_cast_o = '0;
+             ntt_io_cmd_data_o = '0;
              
           end
         LOAD_A:
           begin
-             state_n = done_dma ? NTT_A : LOAD_A;
-             start_dma = 1;
-             dma_address = a_ptr;
- 
+             state_n = dma_done ? NTT_A : LOAD_A;
+             dma_start = 1;
+             dma_addr = a_ptr;
+             dma_len = n;
+             ntt_io_cmd_v_o = '0;
+             ntt_io_cmd_header_cast_o = '0;
+             ntt_io_cmd_data_o = '0;
+             
           end
         NTT_A:
           begin
              state_n = ntt_done ? LOAD_B : NTT_A;
-             start_dma = 0;
-             dma_address = 0;
+             dma_start = 0;
+             dma_addr = 0;
+             dma_len = 0;
+             ntt_io_cmd_v_o = '0;
+             ntt_io_cmd_header_cast_o = '0;
+             ntt_io_cmd_data_o = '0;
              
           end
         LOAD_B:
           begin
-             state_n = done_dma ? NTT_B : LOAD_B;
-             start_dma = 1;
-             dma_address = b_ptr;
+             state_n = dma_done ? NTT_B : LOAD_B;
+             dma_start = 1;
+             dma_addr = b_ptr;
+             dma_len = n;
+             ntt_io_cmd_v_o = '0;
+             ntt_io_cmd_header_cast_o = '0;
+             ntt_io_cmd_data_o = '0;
              
           end
         NTT_B:
           begin
-             state_n = ntt_done ? LOAD_B : DONE;
-             start_dma = 0;
-             dma_address = 0;
+             state_n = ntt_done ? MULT : NTT_B;
+             dma_start = 0;
+             dma_addr = 0;
+             dma_len = 0;
+             ntt_io_cmd_v_o = '0;
+             ntt_io_cmd_header_cast_o = '0;
+             ntt_io_cmd_data_o = '0;
+             
+          end
+        MULT:
+          begin
+             state_n = mult_done ? LOAD_C : MULT;
+             dma_start = 0;
+             dma_addr = 0;
+             dma_len = 0;
+             ntt_io_cmd_v_o = '0;
+             ntt_io_cmd_header_cast_o = '0;
+             ntt_io_cmd_data_o = '0;
+             
+          end
+        LOAD_C:
+          begin
+             state_n = dma_done ? ADD : LOAD_C;
+             dma_start = 1;
+             dma_addr = c_ptr;
+             dma_len = n;
+             ntt_io_cmd_v_o = '0;
+             ntt_io_cmd_header_cast_o = '0;
+             ntt_io_cmd_data_o = '0;
+             
+          end
+        ADD:
+          begin
+             state_n = add_done ? WB_RES : ADD;
+             dma_start = 0;
+             dma_addr = 0;
+             dma_len = 0;
+             ntt_io_cmd_v_o = '0;
+             ntt_io_cmd_header_cast_o = '0;
+             ntt_io_cmd_data_o = '0;
+             
+          end
+        WB_RES:
+          begin
+             state_n = DONE;
+             dma_start = 0;
+             dma_addr = 0;
+             dma_len = 0;
+             ntt_io_cmd_v_o = '0;
+             ntt_io_cmd_header_cast_o = '0;
+             ntt_io_cmd_data_o = '0;
              
           end
         DONE:
           begin
              state_n = RESET;
-             start_dma = 0;
-             dma_address = 0;
+             dma_start = 0;
+             dma_addr = 0;
+             dma_len = 0;
+             ntt_io_cmd_v_o = '1;
+             ntt_io_cmd_header_cast_o.size = e_bedrock_msg_size_8;
+             ntt_io_cmd_header_cast_o.payload = cmd_payload;
+             ntt_io_cmd_header_cast_o.addr = 40'h30_0000;
+             ntt_io_cmd_header_cast_o.subop = e_bedrock_store;
+             ntt_io_cmd_header_cast_o.msg_type.mem = e_bedrock_mem_uc_wr;
+             ntt_io_cmd_data_o = '1;
              
           end
       endcase 
    end // always_comb
-/////////////////////////////////////////////////////////////////////////////////////
 
-   wire [`BSG_SAFE_CLOG2(n)-1:0] w_addr_a = (start_dma && state_r == LOAD_A) ? dma_addr : ntt_addr_a;
-   wire                          w_en_a = (start_dma && state_r == LOAD_A) ? io_resp_v_i : ntt_w_en_a;
-   wire [29:0]                   w_data_a = (start_dma && state_r == LOAD_A) ? io_resp_data_i : ntt_w_data_a;
-                          
-   
-   bsg_mem_1rw_sync
-     #(.width_p(30), .els_p(n))
-   buff_A
-     (.clk_i(clk_i)
-      ,.reset_i(reset_i)
-      ,.data_i(w_data_a)
-      ,.addr_i(r_en_a ? r_addr_a : w_addr_a)
-      ,.v_i(w_en_a && r_en_a)
-      ,.w_i(w_en_a)
-      ,.data_o(r_data_a)
-      );
-
-   wire [`BSG_SAFE_CLOG2(n)-1:0] w_addr_b = (start_dma && state_r == LOAD_B) ? dma_addr : ntt_addr_b;
-   wire                          w_en_b = (start_dma && state_r == LOAD_B) ? io_resp_v_i : ntt_w_en_b;
-   wire [29:0]                   w_data_b = (start_dma && state_r == LOAD_B) ? io_resp_data_i : ntt_w_data_b;
-
-   bsg_mem_1rw_sync
-     #(.width_p(30), .els_p(n))
-   buff_B
-     (.clk_i(clk_i)
-      ,.reset_i(reset_i)
-      ,.data_i(w_data_b)
-      ,.addr_i(r_en_b ? r_addr_b : w_addr_b)
-      ,.v_i(w_en_b && r_en_b)
-      ,.w_i(w_en_b)
-      ,.data_o(r_data_b)
-      );
-
+   assign io_cmd_v_o = ntt_io_cmd_v_o | dma_io_cmd_v_o;
+   assign io_cmd_header_cast_o = ntt_io_cmd_v_o ? ntt_io_cmd_header_cast_o : dma_io_cmd_header_cast_o;
+   assign io_cmd_data_o = ntt_io_cmd_v_o ? ntt_io_cmd_data_o : dma_io_cmd_data_o; 
+   /////////////////////////////////////////////////////////////////////////////////////
    //NTT, MUL, ADD submodules 
    //NTT includes address generators, sequencers, BFU
+   logic ntt_r_en_a, ntt_r_en_b, ntt_start, ntt_w_en_a, ntt_w_en_b;
+   logic [29:0] ntt_r_data_a, ntt_r_data_b, ntt_w_data_a, ntt_w_data_b;
+   logic [63:0] ntt_r_addr_a, ntt_r_addr_b, ntt_w_addr_a, ntt_w_addr_b;
+
+   assign ntt_done = 1;
+   
 /*   NTT
      #(.q(q) , .n(n))
    ntt_mod 
      (//inputs
       .clk(clk)
       ,.reset(reset)
-      ,.start(start)
-      ,.r_data_1(r_data_1)
-      ,.r_data_2(r_data_2)
+      ,.start(ntt_start)
+      ,.r_data_1(ntt_r_data_a)
+      ,.r_data_2(ntt_r_data_b)
 
       //outputs
-      ,.r_en_1(r_en_1)
-      ,.r_en_2(r_en_2)
-      ,.r_addr_1(r_addr_1)
-      ,.r_addr_2(r_addr_2)
-      ,.w_addr_1(w_addr_1)
-      ,.w_addr_2(w_addr_2)
-      ,.w_en_1(w_en_1)
-      ,.w_en_2(w_en_2)
-      ,.done(done)
+      ,.r_en_1(ntt_r_en_a)
+      ,.r_en_2(ntt_r_en_b)
+      ,.r_addr_1(ntt_r_addr_a)
+      ,.r_addr_2(ntt_r_addr_b)
+      ,.w_en_1(ntt_w_en_a)
+      ,.w_en_2(ntt_w_en_b)
+      ,.w_addr_1(ntt_w_addr_a)
+      ,.w_addr_2(ntt_w_addr_b)
+      ,.w_data_1(ntt_w_data_a)
+      ,.w_data_2(ntt_w_data_b)
+      ,.done(ntt_done)
       )
-  */     
+  */
+
+   assign mult_done = 1;
+   assign add_done = 1;
+   
+   //////////////////////////////////BUFFERS////////////////////////////////////////////
+   wire [14:0] w_addr_a;//max(n) == 2^15
+   wire                          w_en_a = (dma_start && state_r == LOAD_A) ? io_resp_v_i : ntt_w_en_a;
+   wire [29:0]                   w_data_a = (dma_start && state_r == LOAD_A) ? io_resp_data_i : ntt_w_data_a;
+                          
+   assign w_addr_a = (dma_start && state_r == LOAD_A) ? dma_addr : ntt_w_addr_a;
+   
+   bsg_mem_1rw_sync
+     #(.width_p(30), .els_p(1024)) //parameters should be a constant
+   buff_A
+     (.clk_i(clk_i)
+      ,.reset_i(reset_i)
+      ,.data_i(w_data_a)
+      ,.addr_i(ntt_r_en_a ? ntt_r_addr_a : w_addr_a)
+      ,.v_i(w_en_a && ntt_r_en_a)
+      ,.w_i(w_en_a)
+      ,.data_o(ntt_r_data_a)
+      );
+
+   wire [14:0] w_addr_b;
+   wire                          w_en_b = (dma_start && state_r == LOAD_B) ? io_resp_v_i : ntt_w_en_b;
+   wire [29:0]                   w_data_b = (dma_start && state_r == LOAD_B) ? io_resp_data_i : ntt_w_data_b;
+
+   assign w_addr_b =  (dma_start && state_r == LOAD_B) ? dma_addr : ntt_w_addr_b;
+     
+   bsg_mem_1rw_sync
+     #(.width_p(30), .els_p(1024))
+   buff_B
+     (.clk_i(clk_i)
+      ,.reset_i(reset_i)
+      ,.data_i(w_data_b)
+      ,.addr_i(ntt_r_en_b ? ntt_r_addr_b : w_addr_b)
+      ,.v_i(w_en_b && ntt_r_en_b)
+      ,.w_i(w_en_b)
+      ,.data_o(ntt_r_data_b)
+      );
+///////////////////////////////////////////////////////////////////////////////////// 
    endmodule
 
