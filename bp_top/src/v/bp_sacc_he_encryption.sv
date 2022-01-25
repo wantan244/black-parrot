@@ -36,6 +36,11 @@ module bp_sacc_he_encryption
    , output logic                               io_resp_ready_o
    );
 
+   localparam max_he_n_p = 1024;
+   localparam max_he_q_p = 30;
+   localparam log_max_he_n_p = `BSG_SAFE_CLOG2(max_he_n_p);
+   
+   
    // CCE-IO interface is used for uncached requests-read/write memory mapped CSR
    `declare_bp_bedrock_mem_if(paddr_width_p, did_width_p, lce_id_width_p, lce_assoc_p, cce);
    `declare_bp_memory_map(paddr_width_p, daddr_width_p);
@@ -122,9 +127,9 @@ module bp_sacc_he_encryption
           begin
              dma_state_n = (dma_len == dma_cntr) ?  DONE_DMA : WAIT_DMA;
              dma_io_cmd_v_o = ~(dma_len == dma_cntr);
-             dma_io_cmd_header_cast_o.size = e_bedrock_msg_size_4;
+             dma_io_cmd_header_cast_o.size = e_bedrock_msg_size_8; // we fetch 64 bit and store 32 bit in each bank (0,1 / 2,3)
              dma_io_cmd_header_cast_o.payload = cmd_payload;
-             dma_io_cmd_header_cast_o.addr = dma_addr + (dma_cntr*4) ;
+             dma_io_cmd_header_cast_o.addr = dma_addr + (dma_cntr*8) ;
              dma_io_cmd_header_cast_o.msg_type.mem <= dma_load_store ? e_bedrock_mem_uc_wr : e_bedrock_mem_uc_rd;
              dma_r_en = 0;
              
@@ -152,39 +157,59 @@ module bp_sacc_he_encryption
 /////////////////////////////////////////////////////////////////////////////////////
 /////////////////////////////////////EN_DECRYPTION FSM///////////////////////////////
    ////cfg registers
-   logic [31:0] q, n, a1_ptr, b1_ptr, c1_ptr, wb1_ptr, a2_ptr, b2_ptr, c2_ptr, wb2_ptr;
+   logic [31:0] a1_ptr, b1_ptr, c1_ptr, wb1_ptr, a2_ptr, b2_ptr, c2_ptr, wb2_ptr;
+   logic [log_max_he_n_p:0] n;
+   logic [max_he_q_p-1:0]   alu_cfg_q;
+   logic [max_he_q_p:0]     alu_cfg_r; // r is (max_he_q_p+1) bits
+   logic [max_he_q_p-1:0]   alu_cfg_w;
+   logic [max_he_q_p-1:0]   alu_cfg_phi;
+   logic [max_he_q_p-1:0]   alu_cfg_n_inv;
+
+   typedef enum logic [2:0] {
+                             OP_NOOP,
+                             OP_CONF,
+                             OP_NTT0,   // R/W bank 0 and 1
+                             OP_NTT1,   // R/W bank 2 and 3
+                             OP_MULT,   // Read all banks, write to bank 2 and 3
+                             OP_ADD,    // Read all banks, write to bank 2 and 3
+                             OP_INTT    // R/W bank 0 and 1
+                             } alu_op_e;
+   alu_op_e alu_op;
+   
    logic        cfg_start, cfg_done, enc_dec, res_stat;
-   logic        ntt_done, ntt_io_cmd_v_o, add_done, mult_done, c0_c1;
-   bp_bedrock_cce_mem_header_s  ntt_io_cmd_header_cast_o;
-   logic [cce_block_width_p-1:0] ntt_io_cmd_data_o;
+   logic        alu_done, he_io_cmd_v_o, c0_c1;
+   bp_bedrock_cce_mem_header_s  he_io_cmd_header_cast_o;
+   logic [cce_block_width_p-1:0] he_io_cmd_data_o;
   
    typedef enum logic [3:0]{
                             RESET
-                            , CFG
-                            , LOAD_A 
+                            , HE_CFG
+                            , ALU_CFG
+                            , LOAD_A
+                            , WAIT_ALU_CFG
                             , NTT_A  
                             , LOAD_B //parallel with NTT_A, wait here until NTT_A is done, full_buffer_count = 2
-                            , NTT_B  
+                            , NTT_B
+                            , WAIT_NTT_A
                             , MULT   //takes one cycle, call point_wise mul and jump to the next state, writeback the resutls to A, fill_buffer_count = 2
                             , LOAD_C //load c regardless of MULT state, you wont overwire the required inputs of mul, gauranteed
                             , ADD
+                            , INTT
                             , WB_RES
                             , DONE
                             , INTR_D
                             } state_e;
-   state_e state_r, state_n, prev_state;
+   state_e state_r, state_n;
 
    always_ff @(posedge clk_i) begin
       if(reset_i) begin
          state_r <= RESET;
-         prev_state <= 0;
          cfg_start <= 0;
          cfg_done <= 0;
          c0_c1 <= 0;
       end
       else begin
          state_r <= state_n;
-         prev_state <= state_r;
          c0_c1 <= (state_n == DONE) ? ~c0_c1 : c0_c1;
          
       if (io_cmd_v_i & (io_cmd_header_cast_i.msg_type == e_bedrock_mem_uc_wr) & (global_addr_li.hio == '0))
@@ -196,7 +221,7 @@ module bp_sacc_he_encryption
            resp_v_lo <= 1;
            unique
              case (local_addr_li.addr)
-               q_csr_idx_gp           : q <= io_cmd_data_i;
+               q_csr_idx_gp           : alu_cfg_q <= io_cmd_data_i;
                n_csr_idx_gp           : n <= io_cmd_data_i;
                enc_dec_csr_idx_gp     : enc_dec <= io_cmd_data_i;
                a1_ptr_csr_idx_gp      : a1_ptr  <= io_cmd_data_i;
@@ -209,6 +234,12 @@ module bp_sacc_he_encryption
                wb2_ptr_csr_idx_gp     : wb2_ptr  <= io_cmd_data_i;
                cfg_start_csr_idx_gp   : cfg_start  <= io_cmd_data_i;
                cfg_done_csr_idx_gp    : cfg_done  <= io_cmd_data_i;
+
+               alu_cfg_r_csr_idx_gp     : alu_cfg_r <= io_cmd_data_i;  
+               alu_cfg_w_csr_idx_gp     : alu_cfg_w <= io_cmd_data_i;
+               alu_cfg_phi_csr_idx_gp   : alu_cfg_phi <= io_cmd_data_i;
+               alu_cfg_n_inv_csr_idx_gp : alu_cfg_n_inv <= io_cmd_data_i;
+               
                default : begin end
              endcase
         end // if (io_cmd_v_i & (io_cmd_header_cast_i.msg_type == e_bedrock_mem_uc_wr) & (global_addr_li.hio == '0))
@@ -221,7 +252,7 @@ module bp_sacc_he_encryption
            resp_v_lo <= 1;
            unique
              case (local_addr_li.addr)
-               q_csr_idx_gp           : csr_data <= q;
+               q_csr_idx_gp           : csr_data <= alu_cfg_q;
                n_csr_idx_gp           : csr_data <= n;
                enc_dec_csr_idx_gp     : csr_data <= enc_dec;
                a1_ptr_csr_idx_gp      : csr_data <= a1_ptr;
@@ -235,6 +266,13 @@ module bp_sacc_he_encryption
                cfg_start_csr_idx_gp   : csr_data <= cfg_start;
                cfg_done_csr_idx_gp    : csr_data <= cfg_done;
                res_stat_csr_idx_gp    : csr_data <= res_stat;
+
+               alu_cfg_r_csr_idx_gp     : csr_data <= alu_cfg_r;
+               alu_cfg_w_csr_idx_gp     : csr_data <= alu_cfg_w;
+               alu_cfg_phi_csr_idx_gp   : csr_data <= alu_cfg_phi;
+               alu_cfg_n_inv_csr_idx_gp : csr_data <= alu_cfg_n_inv;
+               
+
                default : begin end
              endcase
         end // if (io_cmd_v_i & (io_cmd_header_cast_i.msg_type == e_bedrock_mem_uc_rd) & (global_addr_li.hio == '0))
@@ -270,86 +308,139 @@ module bp_sacc_he_encryption
       case (state_r)
         RESET:
           begin
-             state_n = cfg_start ? CFG : RESET;
+             state_n = cfg_start ? HE_CFG : RESET;
              dma_start = 0;
              dma_addr = 0;
              dma_len = 0;
              dma_load_store = 0;
-             ntt_io_cmd_v_o = '0;
-             ntt_io_cmd_header_cast_o = '0;
-             ntt_io_cmd_data_o = '0;
- 
+             he_io_cmd_v_o = '0;
+             he_io_cmd_header_cast_o = '0;
+             he_io_cmd_data_o = '0;
+             alu_op = OP_NOOP;
+             
           end
-        CFG:
+        HE_CFG:
           begin
-             state_n = cfg_done ? LOAD_A : CFG;
+             //we first need to config the he with right parameters and then config the alu
+             state_n = cfg_done ? ALU_CFG : HE_CFG;
              dma_start = 0;
              dma_addr =0 ;
              dma_len = 0;
              dma_load_store = 0;
-             ntt_io_cmd_v_o = '0;
-             ntt_io_cmd_header_cast_o = '0;
-             ntt_io_cmd_data_o = '0;
-             
+             he_io_cmd_v_o = '0;
+             he_io_cmd_header_cast_o = '0;
+             he_io_cmd_data_o = '0;
+             alu_op = OP_NOOP;
+              
+          end
+       ALU_CFG:
+         begin
+            //precomputing the values inside alu
+            //start the config and jump to load a in parallel
+             state_n = LOAD_A;
+             dma_start = 0;
+             dma_addr =0 ;
+             dma_len = 0;
+             dma_load_store = 0;
+             he_io_cmd_v_o = '0;
+             he_io_cmd_header_cast_o = '0;
+             he_io_cmd_data_o = '0;
+             alu_op = OP_CONF;
+       
           end
         LOAD_A:
           begin
-             state_n = (dma_state_r == DONE_DMA) ? (enc_dec ? LOAD_B : NTT_A) : LOAD_A;
+             //check if the alu config is done before starting any alu operations
+             state_n = (dma_state_r == DONE_DMA) ? (enc_dec ? LOAD_B : (alu_done ? NTT_A : WAIT_ALU_CFG)) : LOAD_A;
              dma_start = 1;
              dma_addr = c0_c1 ? a2_ptr : a1_ptr;
-             dma_len = n;
+             dma_len = n >> 1; // we need to fetch n/2*64 bit data and write into 2 banks
              dma_load_store = 0;
-             ntt_io_cmd_v_o = '0;
-             ntt_io_cmd_header_cast_o = '0;
-             ntt_io_cmd_data_o = '0;
+             he_io_cmd_v_o = '0;
+             he_io_cmd_header_cast_o = '0;
+             he_io_cmd_data_o = '0;
+             alu_op = OP_NOOP;
              
+          end 
+        WAIT_ALU_CFG:
+          begin
+             state_n = alu_done ? NTT_A : WAIT_ALU_CFG;
+             dma_start = 0;
+             dma_addr =0 ;
+             dma_len = 0;
+             dma_load_store = 0;
+             he_io_cmd_v_o = '0;
+             he_io_cmd_header_cast_o = '0;
+             he_io_cmd_data_o = '0;
+             alu_op = OP_NOOP;
+   
           end
         NTT_A:
           begin
-             state_n = ntt_done ? LOAD_B : NTT_A;
+             //start ntt and jump to load b, then check if ntt is done before performing ntt b
+             state_n = LOAD_B;
              dma_start = 0;
              dma_addr = 0;
              dma_len = 0;
              dma_load_store = 0;
-             ntt_io_cmd_v_o = '0;
-             ntt_io_cmd_header_cast_o = '0;
-             ntt_io_cmd_data_o = '0;
+             he_io_cmd_v_o = '0;
+             he_io_cmd_header_cast_o = '0;
+             he_io_cmd_data_o = '0;
+             alu_op = OP_NTT0;
              
           end
         LOAD_B:
           begin
-             state_n = (dma_state_r == DONE_DMA) ? (enc_dec ? MULT : NTT_B) : LOAD_B;
+             //check if ntt a is done before calling alu for mull or ntt b
+             state_n = (dma_state_r == DONE_DMA) ? (alu_done ? (enc_dec ? MULT : NTT_B) : WAIT_NTT_A) : LOAD_B;
              dma_start = 1;
              dma_addr = c0_c1 ? b2_ptr : b1_ptr;
-             dma_len = n;
+             dma_len = n >> 1;
              dma_load_store = 0;
-             ntt_io_cmd_v_o = '0;
-             ntt_io_cmd_header_cast_o = '0;
-             ntt_io_cmd_data_o = '0;
+             he_io_cmd_v_o = '0;
+             he_io_cmd_header_cast_o = '0;
+             he_io_cmd_data_o = '0;
+             alu_op = OP_NOOP;
              
-          end
-        NTT_B:
+          end 
+        WAIT_NTT_A:
           begin
-             state_n = ntt_done ? MULT : NTT_B;
+             state_n = alu_done ? NTT_B : WAIT_NTT_A;
              dma_start = 0;
              dma_addr = 0;
              dma_len = 0;
              dma_load_store = 0;
-             ntt_io_cmd_v_o = '0;
-             ntt_io_cmd_header_cast_o = '0;
-             ntt_io_cmd_data_o = '0;
+             he_io_cmd_v_o = '0;
+             he_io_cmd_header_cast_o = '0;
+             he_io_cmd_data_o = '0;
+             alu_op = OP_NOOP;
+          end
+        NTT_B:
+          begin
+             state_n = alu_done ? MULT : NTT_B;
+             dma_start = 0;
+             dma_addr = 0;
+             dma_len = 0;
+             dma_load_store = 0;
+             he_io_cmd_v_o = '0;
+             he_io_cmd_header_cast_o = '0;
+             he_io_cmd_data_o = '0;
+             alu_op = OP_NTT1;
              
           end
         MULT:
           begin
-             state_n = mult_done ? (enc_dec ? ADD : LOAD_C) : MULT;
+             //to_do: we can overlap mult with load_c
+             //since load is slower, we won't overwrite the inputs
+             state_n = alu_done ? (enc_dec ? ADD : LOAD_C) : MULT;
              dma_start = 0;
              dma_addr = 0;
              dma_len = 0;
              dma_load_store = 0;
-             ntt_io_cmd_v_o = '0;
-             ntt_io_cmd_header_cast_o = '0;
-             ntt_io_cmd_data_o = '0;
+             he_io_cmd_v_o = '0;
+             he_io_cmd_header_cast_o = '0;
+             he_io_cmd_data_o = '0;
+             alu_op = OP_MULT;
              
           end
         LOAD_C:
@@ -357,36 +448,52 @@ module bp_sacc_he_encryption
              state_n = (dma_state_r == DONE_DMA) ? ADD : LOAD_C;
              dma_start = 1;
              dma_addr = c0_c1 ? c2_ptr : c1_ptr;
-             dma_len = n;
+             dma_len = n >> 1;
              dma_load_store = 0;
-             ntt_io_cmd_v_o = '0;
-             ntt_io_cmd_header_cast_o = '0;
-             ntt_io_cmd_data_o = '0;
+             he_io_cmd_v_o = '0;
+             he_io_cmd_header_cast_o = '0;
+             he_io_cmd_data_o = '0;
+             alu_op = OP_NOOP;
              
           end
         ADD:
           begin
-             state_n = add_done ? WB_RES : ADD;
+             state_n = alu_done ? WB_RES : ADD;
              dma_start = 0;
              dma_addr = 0;
              dma_len = 0;
              dma_load_store = 0;
-             ntt_io_cmd_v_o = '0;
-             ntt_io_cmd_header_cast_o = '0;
-             ntt_io_cmd_data_o = '0;
+             he_io_cmd_v_o = '0;
+             he_io_cmd_header_cast_o = '0;
+             he_io_cmd_data_o = '0;
+             alu_op = OP_ADD;
              
+          end
+          INTT:
+          begin
+             state_n = alu_done ? WB_RES : INTT;
+             dma_start = 0;
+             dma_addr = 0;
+             dma_len = 0;
+             dma_load_store = 0;
+             he_io_cmd_v_o = '0;
+             he_io_cmd_header_cast_o = '0;
+             he_io_cmd_data_o = '0;
+             alu_op = OP_INTT;
+              
           end
         WB_RES:
           begin
              state_n = (dma_state_r == DONE_DMA) ? DONE : WB_RES;
              dma_start = 1;
              dma_addr = c0_c1 ? wb2_ptr : wb1_ptr;
-             dma_len = n;
+             dma_len = n >> 1;
              dma_load_store = 1;
-             ntt_io_cmd_v_o = '0;
-             ntt_io_cmd_header_cast_o = '0;
-             ntt_io_cmd_data_o = '0;
-             
+             he_io_cmd_v_o = '0;
+             he_io_cmd_header_cast_o = '0;
+             he_io_cmd_data_o = '0;
+             alu_op = OP_NOOP;
+              
           end
         DONE:
           begin
@@ -396,13 +503,15 @@ module bp_sacc_he_encryption
              dma_len = 0;
              dma_load_store = 0;
              //activate interrupt
-             ntt_io_cmd_v_o = ~c0_c1 || enc_dec;
-             ntt_io_cmd_header_cast_o.size = e_bedrock_msg_size_8;
-             ntt_io_cmd_header_cast_o.payload = cmd_payload;
-             ntt_io_cmd_header_cast_o.addr = 40'h30_0000;
-             ntt_io_cmd_header_cast_o.subop = e_bedrock_store;
-             ntt_io_cmd_header_cast_o.msg_type.mem = e_bedrock_mem_uc_wr;
-             ntt_io_cmd_data_o = '1;
+             he_io_cmd_v_o = ~c0_c1 || enc_dec;
+             he_io_cmd_header_cast_o.size = e_bedrock_msg_size_8;
+             he_io_cmd_header_cast_o.payload = cmd_payload;
+             he_io_cmd_header_cast_o.addr = 40'h30_0000;
+             he_io_cmd_header_cast_o.subop = e_bedrock_store;
+             he_io_cmd_header_cast_o.msg_type.mem = e_bedrock_mem_uc_wr;
+             he_io_cmd_data_o = '1;
+             alu_op = OP_NOOP;
+             
           end
         INTR_D:
           begin
@@ -412,107 +521,201 @@ module bp_sacc_he_encryption
              dma_len = 0;
              dma_load_store = 0;
              //deactivate interrupt
-             ntt_io_cmd_v_o = io_resp_v_i;
-             ntt_io_cmd_header_cast_o.size = e_bedrock_msg_size_8;
-             ntt_io_cmd_header_cast_o.payload = cmd_payload;
-             ntt_io_cmd_header_cast_o.addr = 40'h30_0000;
-             ntt_io_cmd_header_cast_o.subop = e_bedrock_store;
-             ntt_io_cmd_header_cast_o.msg_type.mem = e_bedrock_mem_uc_wr;
-             ntt_io_cmd_data_o = '0;
+             he_io_cmd_v_o = io_resp_v_i;
+             he_io_cmd_header_cast_o.size = e_bedrock_msg_size_8;
+             he_io_cmd_header_cast_o.payload = cmd_payload;
+             he_io_cmd_header_cast_o.addr = 40'h30_0000;
+             he_io_cmd_header_cast_o.subop = e_bedrock_store;
+             he_io_cmd_header_cast_o.msg_type.mem = e_bedrock_mem_uc_wr;
+             he_io_cmd_data_o = '0;
+             alu_op = OP_NOOP;
+             
           end 
       endcase 
    end 
 
-   assign io_cmd_v_o = ntt_io_cmd_v_o | dma_io_cmd_v_o;
-   assign io_cmd_header_cast_o = ntt_io_cmd_v_o ? ntt_io_cmd_header_cast_o : dma_io_cmd_header_cast_o;
-   assign io_cmd_data_o = ntt_io_cmd_v_o ? ntt_io_cmd_data_o : dma_io_cmd_data_o; 
+   assign io_cmd_v_o = he_io_cmd_v_o | dma_io_cmd_v_o;
+   assign io_cmd_header_cast_o = he_io_cmd_v_o ? he_io_cmd_header_cast_o : dma_io_cmd_header_cast_o;
+   assign io_cmd_data_o = he_io_cmd_v_o ? he_io_cmd_data_o : dma_io_cmd_data_o; 
    /////////////////////////////////////////////////////////////////////////////////////
-   //NTT, MUL, ADD submodules 
-   //NTT includes address generators, sequencers, BFU
-   logic ntt_r_en_a, ntt_r_en_b, ntt_start, ntt_w_en_a, ntt_w_en_b;
-   logic [29:0] ntt_r_data_a, ntt_r_data_b, ntt_w_data_a, ntt_w_data_b;
-   logic [63:0] ntt_r_addr_a, ntt_r_addr_b, ntt_w_addr_a, ntt_w_addr_b;
+   //ALU module includes ntt, add, mul, address generators, sequencers, BFU
+   logic [log_max_he_n_p-2:0] alu_r_addr_0;
+   logic [log_max_he_n_p-2:0] alu_r_addr_1;
+   logic [1:0]                             alu_r_bank_0, alu_r_bank_0_delay;
+   logic [1:0]                             alu_r_bank_1, alu_r_bank_1_delay;
+   logic                                   alu_r_en_0;
+   logic                                   alu_r_en_1;
+   logic [max_he_q_p-1:0]                  alu_r_data_0;
+   logic [max_he_q_p-1:0]                  alu_r_data_1;
 
-   assign ntt_done = 1;
-   assign ntt_r_en_a = 0;
-   assign ntt_r_en_b = 0;
-   assign ntt_w_en_a = 0;
-   assign ntt_w_en_b = 0;
-   assign ntt_r_addr_a = 0;
-   assign ntt_r_addr_b = 0;
-   assign ntt_w_addr_a = 0;
-   assign ntt_w_addr_b = 0;
-   
-/*   NTT
-     #(.q(q) , .n(n))
-   ntt_mod 
-     (//inputs
-      .clk(clk)
-      ,.reset(reset)
-      ,.start(ntt_start)
-      ,.r_data_1(ntt_r_data_a)
-      ,.r_data_2(ntt_r_data_b)
+   logic [log_max_he_n_p-2:0] alu_w_addr_0;
+   logic [log_max_he_n_p-2:0] alu_w_addr_1;
+   logic [1:0]                             alu_w_bank_0;
+   logic [1:0]                             alu_w_bank_1;
+   logic                                   alu_w_en_0;
+   logic                                   alu_w_en_1;
+   logic [max_he_q_p-1:0]                  alu_w_data_0;
+   logic [max_he_q_p-1:0]                  alu_w_data_1;
 
-      //outputs
-      ,.r_en_1(ntt_r_en_a)
-      ,.r_en_2(ntt_r_en_b)
-      ,.r_addr_1(ntt_r_addr_a)
-      ,.r_addr_2(ntt_r_addr_b)
-      ,.w_en_1(ntt_w_en_a)
-      ,.w_en_2(ntt_w_en_b)
-      ,.w_addr_1(ntt_w_addr_a)
-      ,.w_addr_2(ntt_w_addr_b)
-      ,.w_data_1(ntt_w_data_a)
-      ,.w_data_2(ntt_w_data_b)
-      ,.done(ntt_done)
-      )
+  
+
+/*   ALU #(.max_logn(`BSG_SAFE_CLOG2(max_he_n_p)),
+         .max_logq(max_he_q_p),
+         .dm(dm)
+         ) alu (
+                .clk(clk_i),
+                .rst_n(reset_i),
+                
+                .cfg_logn(`BSG_SAFE_CLOG2(n)),
+                .cfg_q(alu_cfg_q),
+                .cfg_r(alu_cfg_r),
+                .cfg_w(alu_cfg_w),
+                .cfg_phi(alu_cfg_phi),
+                .cfg_n_inv(alu_cfg_n_inv),
+                
+                .r_addr_0(alu_r_addr_0),
+                .r_addr_1(alu_r_addr_1),
+                .r_bank_0(alu_r_bank_0),
+                .r_bank_1(alu_r_bank_1),
+                .r_en_0(alu_r_en_0),
+                .r_en_1(alu_r_en_1),
+                .r_data_0(alu_r_data_0),
+                .r_data_1(alu_r_data_1),
+                
+                .w_addr_0(alu_w_addr_0),
+                .w_addr_1(alu_w_addr_1),
+                .w_bank_0(alu_w_bank_0),
+                .w_bank_1(alu_w_bank_1),
+                .w_en_0(alu_w_en_0),
+                .w_en_1(alu_w_en_1),
+                .w_data_0(alu_w_data_0),
+                .w_data_1(alu_w_data_1),
+                
+                .op(alu_op),
+                .done(alu_done)
+                );
   */
-
-   assign mult_done = 1;
-   assign add_done = 1;
    
+   assign alu_r_addr_0 = 0;
+   assign alu_r_addr_1 = 0;
+   assign alu_r_bank_0 = 0;
+   assign alu_r_bank_1 = 0;
+   assign alu_r_en_0 = 0;
+   assign alu_r_en_1 = 0;
+   assign alu_w_addr_0 = 0;
+   assign alu_w_addr_1 = 0;
+   assign alu_w_bank_0 = 0;
+   assign alu_w_bank_1 = 0;
+   assign alu_w_en_0 = 0;
+   assign alu_w_en_1 = 0;
+   assign alu_w_data_0 = 0;
+   assign alu_w_data_1 = 0;
+   
+   assign alu_done = 1;
+
    //////////////////////////////////BUFFERS////////////////////////////////////////////
-   wire [14:0] w_addr_a, r_addr_a;//max(n) == 2^15
-   wire                          w_en_a = (state_r == LOAD_A) ? io_resp_v_i : ntt_w_en_a;
-   wire                          r_en_a = (state_r == WB_RES) ? dma_r_en : ntt_r_en_a;
-   wire [29:0]                   w_data_a = (state_r == LOAD_A) ? io_resp_data_i : ntt_w_data_a;
-   wire [29:0]                   fifo_r_data_a;
+   // instantiate 4 banks 
+   logic [3:0]                       alu_w_v_i, alu_r_v_i;
+   logic [log_max_he_n_p-2:0]        alu_w_addr_i[3:0];
+   logic [log_max_he_n_p-2:0]        alu_r_addr_i[3:0];
+   logic [max_he_q_p-1:0]            alu_w_data_i[3:0];
+
+      // Delay read bank# for 1 cycle
+   always_ff @(posedge clk_i) begin
+      alu_r_bank_0_delay <= alu_r_bank_0;
+      alu_r_bank_1_delay <= alu_r_bank_1;
+   end
+
+   integer ii;
+   always_comb begin
+      // Instantiate read/write muxes for 4 memory banks. Unroll the loops when needed
+      for (ii = 0; ii < 4; ii = ii + 1) begin : gen_mem_input_mux
+         // Read port addr/en input
+         unique if (alu_r_en_0 && alu_r_bank_0 == ii) begin
+            alu_r_v_i[ii] = 'b1;
+            alu_r_addr_i[ii] = alu_r_addr_0;
+         end else if (alu_r_en_1 && alu_r_bank_1 == ii) begin
+            alu_r_v_i[ii] = 'b1;
+            alu_r_addr_i[ii] = alu_r_addr_1;
+         end else begin
+            alu_r_v_i[ii] = 'b0;
+            alu_r_addr_i[ii] = 'b0;
+         end
+
+         // Write port addr/en/data input
+         unique if (alu_w_en_0 && alu_w_bank_0 == ii) begin
+            alu_w_v_i[ii] = 'b1;
+            alu_w_addr_i[ii] = alu_w_addr_0;
+            alu_w_data_i[ii] = alu_w_data_0;
+         end else if (alu_w_en_1 && alu_w_bank_1 == ii) begin
+            alu_w_v_i[ii] = 'b1;
+            alu_w_addr_i[ii] = alu_w_addr_1;
+            alu_w_data_i[ii] = alu_w_data_1;
+         end else begin
+            alu_w_v_i[ii] = 'b0;
+            alu_w_addr_i[ii] = 'b0;
+            alu_w_data_i[ii] = 'b0;
+         end
+      end
+   end // always_comb
+
+   logic [3:0]                           bank_w_v_i, bank_r_v_i;
+   logic [log_max_he_n_p-2:0]            bank_w_addr_i[3:0];
+   logic [log_max_he_n_p-2:0]            bank_r_addr_i[3:0];
+   logic [max_he_q_p-1:0]                bank_w_data_i[3:0];
+   logic [max_he_q_p-1:0]                bank_r_data_o[3:0];
+
+   //((A * B ) + C) 
+   //((bank0-1 * bank2-3) + bank0-1)
+   //((bank2-3) + bank0-1)
+   //((bank2-3))
+
+   //decryption ==> INTT results in bank2-3
    
-   assign w_addr_a = (state_r == LOAD_A) ? dma_cntr : ntt_w_addr_a;
-   assign r_addr_a = (state_r == WB_RES) ? (dma_state_r == RESET_DMA ? dma_cntr : dma_cntr+1) : ntt_r_addr_a;
-                    
-   bsg_mem_1rw_sync
-     #(.width_p(30), .els_p(8092)) //parameters should be a constant
-   buff_A
-     (.clk_i(clk_i)
-      ,.reset_i(reset_i)
-      ,.data_i(w_data_a)
-      ,.addr_i((ntt_r_en_a || dma_load_store) ? r_addr_a : w_addr_a)
-      ,.v_i(w_en_a || r_en_a)
-      ,.w_i(w_en_a)
-      ,.data_o(fifo_r_data_a)
-      );
+   assign bank_w_v_i[0] = (state_r == LOAD_A || state_r == LOAD_C) ? io_resp_v_i : alu_w_v_i[0];
+   assign bank_w_v_i[1] = (state_r == LOAD_A || state_r == LOAD_C) ? io_resp_v_i : alu_w_v_i[1];
+   assign bank_w_v_i[2] = (state_r == LOAD_B) ? io_resp_v_i : alu_w_v_i[2];
+   assign bank_w_v_i[3] = (state_r == LOAD_B) ? io_resp_v_i : alu_w_v_i[3];
 
-   assign ntt_r_data_a = fifo_r_data_a;
-   assign dma_io_cmd_data_o = fifo_r_data_a;
+   assign bank_r_v_i[0] = alu_r_v_i[0];
+   assign bank_r_v_i[1] = alu_r_v_i[1];
+   assign bank_r_v_i[2] = (state_r == WB_RES) ? dma_r_en : alu_r_v_i[2];
+   assign bank_r_v_i[3] = (state_r == WB_RES) ? dma_r_en : alu_r_v_i[3];
 
-   wire [14:0] w_addr_b;
-   wire                          w_en_b = (dma_start && state_r == LOAD_B) ? io_resp_v_i : ntt_w_en_b;
-   wire [29:0]                   w_data_b = (dma_start && state_r == LOAD_B) ? io_resp_data_i : ntt_w_data_b;
+   assign bank_w_data_i[0] = (state_r == LOAD_A || state_r == LOAD_C) ? io_resp_data_i : alu_w_data_i[0];
+   assign bank_w_data_i[1] = (state_r == LOAD_A || state_r == LOAD_C) ? io_resp_data_i>>32 : alu_w_data_i[1];
+   assign bank_w_data_i[2] = (state_r == LOAD_B) ? io_resp_data_i : alu_w_data_i[2];
+   assign bank_w_data_i[3] = (state_r == LOAD_B) ? io_resp_data_i>>32 : alu_w_data_i[3];
 
-   assign w_addr_b =  (dma_start && state_r == LOAD_B) ? dma_addr : ntt_w_addr_b;
-     
-   bsg_mem_1rw_sync
-     #(.width_p(30), .els_p(8092))
-   buff_B
-     (.clk_i(clk_i)
-      ,.reset_i(reset_i)
-      ,.data_i(w_data_b)
-      ,.addr_i(ntt_r_en_b ? ntt_r_addr_b : w_addr_b)
-      ,.v_i(w_en_b && ntt_r_en_b)
-      ,.w_i(w_en_b)
-      ,.data_o(ntt_r_data_b)
-      );
-///////////////////////////////////////////////////////////////////////////////////// 
+   assign bank_w_addr_i[0] = (state_r == LOAD_A || state_r == LOAD_C) ? dma_cntr : alu_w_addr_i[0];
+   assign bank_w_addr_i[1] = (state_r == LOAD_A || state_r == LOAD_C) ? dma_cntr : alu_w_addr_i[1];
+   assign bank_w_addr_i[2] = (state_r == LOAD_B) ? dma_cntr : alu_w_addr_i[2];
+   assign bank_w_addr_i[3] = (state_r == LOAD_B) ? dma_cntr : alu_w_addr_i[3];
+
+   assign bank_r_addr_i[0] = alu_r_addr_i[0];
+   assign bank_r_addr_i[1] = alu_r_addr_i[1];   
+   assign bank_r_addr_i[2] = (state_r == WB_RES) ? (dma_state_r == RESET_DMA ? dma_cntr : dma_cntr+1) : alu_r_addr_i[2];
+   assign bank_r_addr_i[3] = (state_r == WB_RES) ? (dma_state_r == RESET_DMA ? dma_cntr : dma_cntr+1) : alu_r_addr_i[3];
+      
+   genvar gi;
+   // Instantiate 4 memory banks
+   for (gi = 0; gi < 4; gi = gi + 1) begin : gen_mem
+      bsg_mem_1r1w_sync #(.width_p(max_he_q_p),
+                          .els_p  (max_he_n_p>>1)
+                          ) mem_bank (
+                                  clk_i,
+                                  reset_i,
+                                  bank_w_v_i[gi],
+                                  bank_w_addr_i[gi],
+                                  bank_w_data_i[gi],
+                                  bank_r_v_i[gi],
+                                  bank_r_addr_i[gi],
+                                  bank_r_data_o[gi]
+                                  );
+   end // block: gen_mem
+   assign dma_io_cmd_data_o = {2'b00,bank_r_data_o[3],2'b00,bank_r_data_o[2]};
+   assign alu_r_data_0 = bank_r_data_o[alu_r_bank_0_delay];
+   assign alu_r_data_1 = bank_r_data_o[alu_r_bank_1_delay];
+   
    endmodule
 
