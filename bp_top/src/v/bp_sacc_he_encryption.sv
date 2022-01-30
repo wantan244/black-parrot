@@ -127,9 +127,9 @@ module bp_sacc_he_encryption
           begin
              dma_state_n = (dma_len == dma_cntr) ?  DONE_DMA : WAIT_DMA;
              dma_io_cmd_v_o = ~(dma_len == dma_cntr);
-             dma_io_cmd_header_cast_o.size = e_bedrock_msg_size_8; // we fetch 64 bit and store 32 bit in each bank (0,1 / 2,3)
+             dma_io_cmd_header_cast_o.size = e_bedrock_msg_size_4; // we fetch 64 bit and store 32 bit in each bank (0,1 / 2,3)
              dma_io_cmd_header_cast_o.payload = cmd_payload;
-             dma_io_cmd_header_cast_o.addr = dma_addr + (dma_cntr*8) ;
+             dma_io_cmd_header_cast_o.addr = dma_addr + (dma_cntr*4) ;
              dma_io_cmd_header_cast_o.msg_type.mem <= dma_load_store ? e_bedrock_mem_uc_wr : e_bedrock_mem_uc_rd;
              dma_r_en = 0;
              
@@ -165,21 +165,13 @@ module bp_sacc_he_encryption
    logic [max_he_q_p-1:0]   alu_cfg_phi;
    logic [max_he_q_p-1:0]   alu_cfg_n_inv;
 
-   typedef enum logic [2:0] {
-                             OP_NOOP,
-                             OP_CONF,
-                             OP_NTT0,   // R/W bank 0 and 1
-                             OP_NTT1,   // R/W bank 2 and 3
-                             OP_MULT,   // Read all banks, write to bank 2 and 3
-                             OP_ADD,    // Read all banks, write to bank 2 and 3
-                             OP_INTT    // R/W bank 0 and 1
-                             } alu_op_e;
    alu_op_e alu_op;
    
    logic        cfg_start, cfg_done, enc_dec, res_stat;
-   logic        alu_done, he_io_cmd_v_o, c0_c1;
+   logic        alu_done, prev_alu_done, he_io_cmd_v_o, c0_c1;
    bp_bedrock_cce_mem_header_s  he_io_cmd_header_cast_o;
    logic [cce_block_width_p-1:0] he_io_cmd_data_o;
+   logic [63:0]  w_bit_rev_dma_cntr, r_bit_rev_dma_cntr, prev_r_bit_rev_dma_cntr; 
   
    typedef enum logic [3:0]{
                             RESET
@@ -207,10 +199,14 @@ module bp_sacc_he_encryption
          cfg_start <= 0;
          cfg_done <= 0;
          c0_c1 <= 0;
+         prev_r_bit_rev_dma_cntr <= 0;
+         prev_alu_done <= 0;
       end
       else begin
          state_r <= state_n;
          c0_c1 <= (state_n == DONE) ? ~c0_c1 : c0_c1;
+         prev_r_bit_rev_dma_cntr <= r_bit_rev_dma_cntr;
+         prev_alu_done <= alu_done;
          
       if (io_cmd_v_i & (io_cmd_header_cast_i.msg_type == e_bedrock_mem_uc_wr) & (global_addr_li.hio == '0))
         begin
@@ -354,7 +350,7 @@ module bp_sacc_he_encryption
              state_n = (dma_state_r == DONE_DMA) ? (enc_dec ? LOAD_B : (alu_done ? NTT_A : WAIT_ALU_CFG)) : LOAD_A;
              dma_start = 1;
              dma_addr = c0_c1 ? a2_ptr : a1_ptr;
-             dma_len = n >> 1; // we need to fetch n/2*64 bit data and write into 2 banks
+             dma_len = n; //n >> 1; if we need to fetch n/2*64 bit data and write into 2 banks
              dma_load_store = 0;
              he_io_cmd_v_o = '0;
              he_io_cmd_header_cast_o = '0;
@@ -395,7 +391,7 @@ module bp_sacc_he_encryption
              state_n = (dma_state_r == DONE_DMA) ? (alu_done ? (enc_dec ? MULT : NTT_B) : WAIT_NTT_A) : LOAD_B;
              dma_start = 1;
              dma_addr = c0_c1 ? b2_ptr : b1_ptr;
-             dma_len = n >> 1;
+             dma_len = n;
              dma_load_store = 0;
              he_io_cmd_v_o = '0;
              he_io_cmd_header_cast_o = '0;
@@ -417,7 +413,7 @@ module bp_sacc_he_encryption
           end
         NTT_B:
           begin
-             state_n = alu_done ? MULT : NTT_B;
+             state_n = (alu_done && ~prev_alu_done) ? MULT : NTT_B;
              dma_start = 0;
              dma_addr = 0;
              dma_len = 0;
@@ -425,14 +421,14 @@ module bp_sacc_he_encryption
              he_io_cmd_v_o = '0;
              he_io_cmd_header_cast_o = '0;
              he_io_cmd_data_o = '0;
-             alu_op = OP_NTT1;
+             alu_op = prev_alu_done ? OP_NTT1 : OP_NOOP;
              
           end
         MULT:
           begin
              //to_do: we can overlap mult with load_c
              //since load is slower, we won't overwrite the inputs
-             state_n = alu_done ? (enc_dec ? ADD : LOAD_C) : MULT;
+             state_n = (alu_done && ~prev_alu_done) ? (enc_dec ? ADD : LOAD_C) : MULT;
              dma_start = 0;
              dma_addr = 0;
              dma_len = 0;
@@ -440,7 +436,7 @@ module bp_sacc_he_encryption
              he_io_cmd_v_o = '0;
              he_io_cmd_header_cast_o = '0;
              he_io_cmd_data_o = '0;
-             alu_op = OP_MULT;
+             alu_op = prev_alu_done ? OP_MULT : OP_NOOP;
              
           end
         LOAD_C:
@@ -448,7 +444,7 @@ module bp_sacc_he_encryption
              state_n = (dma_state_r == DONE_DMA) ? ADD : LOAD_C;
              dma_start = 1;
              dma_addr = c0_c1 ? c2_ptr : c1_ptr;
-             dma_len = n >> 1;
+             dma_len = n;
              dma_load_store = 0;
              he_io_cmd_v_o = '0;
              he_io_cmd_header_cast_o = '0;
@@ -458,7 +454,7 @@ module bp_sacc_he_encryption
           end
         ADD:
           begin
-             state_n = alu_done ? WB_RES : ADD;
+             state_n = (alu_done  && ~prev_alu_done) ? WB_RES : ADD;
              dma_start = 0;
              dma_addr = 0;
              dma_len = 0;
@@ -466,7 +462,7 @@ module bp_sacc_he_encryption
              he_io_cmd_v_o = '0;
              he_io_cmd_header_cast_o = '0;
              he_io_cmd_data_o = '0;
-             alu_op = OP_ADD;
+             alu_op =  prev_alu_done ? OP_ADD : OP_NOOP;
              
           end
           INTT:
@@ -479,7 +475,7 @@ module bp_sacc_he_encryption
              he_io_cmd_v_o = '0;
              he_io_cmd_header_cast_o = '0;
              he_io_cmd_data_o = '0;
-             alu_op = OP_INTT;
+             alu_op = OP_INTT1;
               
           end
         WB_RES:
@@ -487,7 +483,7 @@ module bp_sacc_he_encryption
              state_n = (dma_state_r == DONE_DMA) ? DONE : WB_RES;
              dma_start = 1;
              dma_addr = c0_c1 ? wb2_ptr : wb1_ptr;
-             dma_len = n >> 1;
+             dma_len = n;
              dma_load_store = 1;
              he_io_cmd_v_o = '0;
              he_io_cmd_header_cast_o = '0;
@@ -559,60 +555,64 @@ module bp_sacc_he_encryption
 
   
 
-/*   ALU #(.max_logn(`BSG_SAFE_CLOG2(max_he_n_p)),
-         .max_logq(max_he_q_p),
-         .dm(dm)
-         ) alu (
-                .clk(clk_i),
-                .rst_n(reset_i),
+   ntt_alu #(.max_logn(log_max_he_n_p),
+             .max_logq(max_he_q_p)
+             ) 
+   alu (.clk(clk_i),
+        .rst_n(~reset_i),
                 
-                .cfg_logn(`BSG_SAFE_CLOG2(n)),
-                .cfg_q(alu_cfg_q),
-                .cfg_r(alu_cfg_r),
-                .cfg_w(alu_cfg_w),
-                .cfg_phi(alu_cfg_phi),
-                .cfg_n_inv(alu_cfg_n_inv),
+        .cfg_logn(`BSG_SAFE_CLOG2(n)),
+        .cfg_q(alu_cfg_q),
+        .cfg_r(alu_cfg_r),
+        .cfg_w(alu_cfg_w),
+        .cfg_phi(alu_cfg_phi),
+        .cfg_n_inv(alu_cfg_n_inv),
                 
-                .r_addr_0(alu_r_addr_0),
-                .r_addr_1(alu_r_addr_1),
-                .r_bank_0(alu_r_bank_0),
-                .r_bank_1(alu_r_bank_1),
-                .r_en_0(alu_r_en_0),
-                .r_en_1(alu_r_en_1),
-                .r_data_0(alu_r_data_0),
-                .r_data_1(alu_r_data_1),
+        .r_addr_0(alu_r_addr_0),
+        .r_addr_1(alu_r_addr_1),
+        .r_bank_0(alu_r_bank_0),
+        .r_bank_1(alu_r_bank_1),
+        .r_en_0(alu_r_en_0),
+        .r_en_1(alu_r_en_1),
+        .r_data_0(alu_r_data_0),
+        .r_data_1(alu_r_data_1),
                 
-                .w_addr_0(alu_w_addr_0),
-                .w_addr_1(alu_w_addr_1),
-                .w_bank_0(alu_w_bank_0),
-                .w_bank_1(alu_w_bank_1),
-                .w_en_0(alu_w_en_0),
-                .w_en_1(alu_w_en_1),
-                .w_data_0(alu_w_data_0),
-                .w_data_1(alu_w_data_1),
+        .w_addr_0(alu_w_addr_0),
+        .w_addr_1(alu_w_addr_1),
+        .w_bank_0(alu_w_bank_0),
+        .w_bank_1(alu_w_bank_1),
+        .w_en_0(alu_w_en_0),
+        .w_en_1(alu_w_en_1),
+        .w_data_0(alu_w_data_0),
+        .w_data_1(alu_w_data_1),
                 
-                .op(alu_op),
-                .done(alu_done)
-                );
-  */
-   
-   assign alu_r_addr_0 = 0;
-   assign alu_r_addr_1 = 0;
-   assign alu_r_bank_0 = 0;
-   assign alu_r_bank_1 = 0;
-   assign alu_r_en_0 = 0;
-   assign alu_r_en_1 = 0;
-   assign alu_w_addr_0 = 0;
-   assign alu_w_addr_1 = 0;
-   assign alu_w_bank_0 = 0;
-   assign alu_w_bank_1 = 0;
-   assign alu_w_en_0 = 0;
-   assign alu_w_en_1 = 0;
-   assign alu_w_data_0 = 0;
-   assign alu_w_data_1 = 0;
-   
-   assign alu_done = 1;
+        .op(alu_op),
+        .done(alu_done)
+        );
 
+   //////////////////////////////////ADDR CONV//////////////////////////////////////////
+   // First layer: Address conversion for writing
+   function automatic [log_max_he_n_p-1:0] bit_rev(input [log_max_he_n_p-1:0] in,
+                                                   input [log_max_he_n_p-1:0] logn);
+      
+      logic [log_max_he_n_p-1:0] in_rev;
+      in_rev = {<<{in}};
+      return in_rev >> (log_max_he_n_p - logn);
+  
+   endfunction
+
+  // Address conversion for reading
+  function automatic [log_max_he_n_p-1:0] cnt2phyaddr(input [log_max_he_n_p-1:0] in,
+                                                      input [log_max_he_n_p-1:0] logn);
+    // output = ({in_rev[logn-2:0], in_rev[logn-1]})
+    logic [log_max_he_n_p-1:0] in_rev, res, all_ones;
+    all_ones = '1;
+    in_rev = bit_rev(in, logn);
+    res = {in_rev[log_max_he_n_p-2:0], in_rev[logn-1]};
+    res = res & (all_ones >> (log_max_he_n_p - logn));
+    return res;
+  endfunction // cnt2phyaddr
+   
    //////////////////////////////////BUFFERS////////////////////////////////////////////
    // instantiate 4 banks 
    logic [3:0]                       alu_w_v_i, alu_r_v_i;
@@ -671,31 +671,35 @@ module bp_sacc_he_encryption
    //((bank2-3))
 
    //decryption ==> INTT results in bank2-3
+
+   //writes to different banks but the same index in the banks
+   assign w_bit_rev_dma_cntr = bit_rev (dma_cntr, log_max_he_n_p);
+   assign r_bit_rev_dma_cntr = cnt2phyaddr (dma_state_r == RESET_DMA ? dma_cntr : dma_cntr+1, log_max_he_n_p);
    
-   assign bank_w_v_i[0] = (state_r == LOAD_A || state_r == LOAD_C) ? io_resp_v_i : alu_w_v_i[0];
-   assign bank_w_v_i[1] = (state_r == LOAD_A || state_r == LOAD_C) ? io_resp_v_i : alu_w_v_i[1];
-   assign bank_w_v_i[2] = (state_r == LOAD_B) ? io_resp_v_i : alu_w_v_i[2];
-   assign bank_w_v_i[3] = (state_r == LOAD_B) ? io_resp_v_i : alu_w_v_i[3];
+   assign bank_w_v_i[0] = (state_r == LOAD_A || state_r == LOAD_C) ? io_resp_v_i && ~w_bit_rev_dma_cntr[0] : alu_w_v_i[0];
+   assign bank_w_v_i[1] = (state_r == LOAD_A || state_r == LOAD_C) ? io_resp_v_i && w_bit_rev_dma_cntr[0] : alu_w_v_i[1];
+   assign bank_w_v_i[2] = (state_r == LOAD_B) ? io_resp_v_i && ~w_bit_rev_dma_cntr[0] : alu_w_v_i[2];
+   assign bank_w_v_i[3] = (state_r == LOAD_B) ? io_resp_v_i && w_bit_rev_dma_cntr[0] : alu_w_v_i[3];
 
    assign bank_r_v_i[0] = alu_r_v_i[0];
    assign bank_r_v_i[1] = alu_r_v_i[1];
-   assign bank_r_v_i[2] = (state_r == WB_RES) ? dma_r_en : alu_r_v_i[2];
-   assign bank_r_v_i[3] = (state_r == WB_RES) ? dma_r_en : alu_r_v_i[3];
+   assign bank_r_v_i[2] = (state_r == WB_RES) ? dma_r_en && ~r_bit_rev_dma_cntr[0] : alu_r_v_i[2];
+   assign bank_r_v_i[3] = (state_r == WB_RES) ? dma_r_en && r_bit_rev_dma_cntr[0] : alu_r_v_i[3];
 
    assign bank_w_data_i[0] = (state_r == LOAD_A || state_r == LOAD_C) ? io_resp_data_i : alu_w_data_i[0];
-   assign bank_w_data_i[1] = (state_r == LOAD_A || state_r == LOAD_C) ? io_resp_data_i>>32 : alu_w_data_i[1];
+   assign bank_w_data_i[1] = (state_r == LOAD_A || state_r == LOAD_C) ? io_resp_data_i : alu_w_data_i[1];
    assign bank_w_data_i[2] = (state_r == LOAD_B) ? io_resp_data_i : alu_w_data_i[2];
-   assign bank_w_data_i[3] = (state_r == LOAD_B) ? io_resp_data_i>>32 : alu_w_data_i[3];
+   assign bank_w_data_i[3] = (state_r == LOAD_B) ? io_resp_data_i : alu_w_data_i[3];
 
-   assign bank_w_addr_i[0] = (state_r == LOAD_A || state_r == LOAD_C) ? dma_cntr : alu_w_addr_i[0];
-   assign bank_w_addr_i[1] = (state_r == LOAD_A || state_r == LOAD_C) ? dma_cntr : alu_w_addr_i[1];
-   assign bank_w_addr_i[2] = (state_r == LOAD_B) ? dma_cntr : alu_w_addr_i[2];
-   assign bank_w_addr_i[3] = (state_r == LOAD_B) ? dma_cntr : alu_w_addr_i[3];
+   assign bank_w_addr_i[0] = (state_r == LOAD_A || state_r == LOAD_C) ? w_bit_rev_dma_cntr[log_max_he_n_p:1] : alu_w_addr_i[0];
+   assign bank_w_addr_i[1] = (state_r == LOAD_A || state_r == LOAD_C) ? w_bit_rev_dma_cntr[log_max_he_n_p:1] : alu_w_addr_i[1];
+   assign bank_w_addr_i[2] = (state_r == LOAD_B) ? w_bit_rev_dma_cntr[log_max_he_n_p:1] : alu_w_addr_i[2];
+   assign bank_w_addr_i[3] = (state_r == LOAD_B) ? w_bit_rev_dma_cntr[log_max_he_n_p:1] : alu_w_addr_i[3];
 
    assign bank_r_addr_i[0] = alu_r_addr_i[0];
    assign bank_r_addr_i[1] = alu_r_addr_i[1];   
-   assign bank_r_addr_i[2] = (state_r == WB_RES) ? (dma_state_r == RESET_DMA ? dma_cntr : dma_cntr+1) : alu_r_addr_i[2];
-   assign bank_r_addr_i[3] = (state_r == WB_RES) ? (dma_state_r == RESET_DMA ? dma_cntr : dma_cntr+1) : alu_r_addr_i[3];
+   assign bank_r_addr_i[2] = (state_r == WB_RES) ? r_bit_rev_dma_cntr[log_max_he_n_p:1] : alu_r_addr_i[2];
+   assign bank_r_addr_i[3] = (state_r == WB_RES) ? r_bit_rev_dma_cntr[log_max_he_n_p:1] : alu_r_addr_i[3];
       
    genvar gi;
    // Instantiate 4 memory banks
@@ -713,7 +717,9 @@ module bp_sacc_he_encryption
                                   bank_r_data_o[gi]
                                   );
    end // block: gen_mem
-   assign dma_io_cmd_data_o = {2'b00,bank_r_data_o[3],2'b00,bank_r_data_o[2]};
+   //this is used, when we are loading/storing 64bit data at a time
+   //assign dma_io_cmd_data_o = {2'b00,bank_r_data_o[3],2'b00,bank_r_data_o[2]};
+   assign dma_io_cmd_data_o = prev_r_bit_rev_dma_cntr[0] ? bank_r_data_o[3] : bank_r_data_o[2];
    assign alu_r_data_0 = bank_r_data_o[alu_r_bank_0_delay];
    assign alu_r_data_1 = bank_r_data_o[alu_r_bank_1_delay];
    
