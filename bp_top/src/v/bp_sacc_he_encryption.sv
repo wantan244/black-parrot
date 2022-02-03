@@ -258,7 +258,7 @@ module bp_sacc_he_encryption
                a2_ptr_csr_idx_gp      : csr_data <= a2_ptr;
                b2_ptr_csr_idx_gp      : csr_data <= b2_ptr;
                c2_ptr_csr_idx_gp      : csr_data <= c2_ptr;
-               wb1_ptr_csr_idx_gp     : csr_data <= wb2_ptr;
+               wb2_ptr_csr_idx_gp     : csr_data <= wb2_ptr;
                cfg_start_csr_idx_gp   : csr_data <= cfg_start;
                cfg_done_csr_idx_gp    : csr_data <= cfg_done;
                res_stat_csr_idx_gp    : csr_data <= res_stat;
@@ -374,7 +374,8 @@ module bp_sacc_he_encryption
         NTT_A:
           begin
              //start ntt and jump to load b, then check if ntt is done before performing ntt b
-             state_n = LOAD_B;
+             //state_n = LOAD_B;
+             state_n = WAIT_NTT_A;
              dma_start = 0;
              dma_addr = 0;
              dma_len = 0;
@@ -401,7 +402,8 @@ module bp_sacc_he_encryption
           end 
         WAIT_NTT_A:
           begin
-             state_n = alu_done ? NTT_B : WAIT_NTT_A;
+             //state_n = alu_done ? NTT_B : WAIT_NTT_A;
+             state_n = alu_done ? WB_RES : WAIT_NTT_A;
              dma_start = 0;
              dma_addr = 0;
              dma_len = 0;
@@ -681,10 +683,15 @@ module bp_sacc_he_encryption
    assign bank_w_v_i[2] = (state_r == LOAD_B) ? io_resp_v_i && ~w_bit_rev_dma_cntr[0] : alu_w_v_i[2];
    assign bank_w_v_i[3] = (state_r == LOAD_B) ? io_resp_v_i && w_bit_rev_dma_cntr[0] : alu_w_v_i[3];
 
-   assign bank_r_v_i[0] = alu_r_v_i[0];
+   /*assign bank_r_v_i[0] = alu_r_v_i[0];
    assign bank_r_v_i[1] = alu_r_v_i[1];
    assign bank_r_v_i[2] = (state_r == WB_RES) ? dma_r_en && ~r_bit_rev_dma_cntr[0] : alu_r_v_i[2];
-   assign bank_r_v_i[3] = (state_r == WB_RES) ? dma_r_en && r_bit_rev_dma_cntr[0] : alu_r_v_i[3];
+   assign bank_r_v_i[3] = (state_r == WB_RES) ? dma_r_en && r_bit_rev_dma_cntr[0] : alu_r_v_i[3];*/
+   assign bank_r_v_i[0] = (state_r == WB_RES) ? dma_r_en && ~r_bit_rev_dma_cntr[0] : alu_r_v_i[0];
+   assign bank_r_v_i[1] = (state_r == WB_RES) ? dma_r_en && r_bit_rev_dma_cntr[0] : alu_r_v_i[1];
+   assign bank_r_v_i[2] = alu_r_v_i[2];
+   assign bank_r_v_i[3] = alu_r_v_i[3];
+
 
    assign bank_w_data_i[0] = (state_r == LOAD_A || state_r == LOAD_C) ? io_resp_data_i : alu_w_data_i[0];
    assign bank_w_data_i[1] = (state_r == LOAD_A || state_r == LOAD_C) ? io_resp_data_i : alu_w_data_i[1];
@@ -696,10 +703,15 @@ module bp_sacc_he_encryption
    assign bank_w_addr_i[2] = (state_r == LOAD_B) ? w_bit_rev_dma_cntr[log_max_he_n_p:1] : alu_w_addr_i[2];
    assign bank_w_addr_i[3] = (state_r == LOAD_B) ? w_bit_rev_dma_cntr[log_max_he_n_p:1] : alu_w_addr_i[3];
 
-   assign bank_r_addr_i[0] = alu_r_addr_i[0];
+   /*assign bank_r_addr_i[0] = alu_r_addr_i[0];
    assign bank_r_addr_i[1] = alu_r_addr_i[1];   
    assign bank_r_addr_i[2] = (state_r == WB_RES) ? r_bit_rev_dma_cntr[log_max_he_n_p:1] : alu_r_addr_i[2];
-   assign bank_r_addr_i[3] = (state_r == WB_RES) ? r_bit_rev_dma_cntr[log_max_he_n_p:1] : alu_r_addr_i[3];
+   assign bank_r_addr_i[3] = (state_r == WB_RES) ? r_bit_rev_dma_cntr[log_max_he_n_p:1] : alu_r_addr_i[3];*/
+   
+   assign bank_r_addr_i[0] = (state_r == WB_RES) ? r_bit_rev_dma_cntr[log_max_he_n_p:1] : alu_r_addr_i[0];
+   assign bank_r_addr_i[1] = (state_r == WB_RES) ? r_bit_rev_dma_cntr[log_max_he_n_p:1] : alu_r_addr_i[1];   
+   assign bank_r_addr_i[2] = alu_r_addr_i[2];
+   assign bank_r_addr_i[3] = alu_r_addr_i[3];
       
    genvar gi;
    // Instantiate 4 memory banks
@@ -719,9 +731,15 @@ module bp_sacc_he_encryption
    end // block: gen_mem
    //this is used, when we are loading/storing 64bit data at a time
    //assign dma_io_cmd_data_o = {2'b00,bank_r_data_o[3],2'b00,bank_r_data_o[2]};
-   assign dma_io_cmd_data_o = prev_r_bit_rev_dma_cntr[0] ? bank_r_data_o[3] : bank_r_data_o[2];
+   //assign dma_io_cmd_data_o = prev_r_bit_rev_dma_cntr[0] ? bank_r_data_o[3] : bank_r_data_o[2];
+   assign dma_io_cmd_data_o = prev_r_bit_rev_dma_cntr[0] ? bank_r_data_o[1] : bank_r_data_o[0];
+   
    assign alu_r_data_0 = bank_r_data_o[alu_r_bank_0_delay];
    assign alu_r_data_1 = bank_r_data_o[alu_r_bank_1_delay];
    
    endmodule
+
+
+
+
 
