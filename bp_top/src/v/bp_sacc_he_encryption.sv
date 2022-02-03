@@ -9,6 +9,9 @@ module bp_sacc_he_encryption
    `declare_bp_proc_params(bp_params_p)
    `declare_bp_bedrock_mem_if_widths(paddr_width_p, did_width_p, lce_id_width_p, lce_assoc_p, cce)
    , localparam cfg_bus_width_lp= `bp_cfg_bus_width(hio_width_p, core_id_width_p, cce_id_width_p, lce_id_width_p)
+   , localparam max_he_n_p = 1024
+   , localparam max_he_q_p = 30
+   , localparam log_max_he_n_p = `BSG_SAFE_CLOG2(max_he_n_p)
    )
   (input                                        clk_i
    , input                                      reset_i
@@ -35,11 +38,6 @@ module bp_sacc_he_encryption
    , input                                      io_resp_v_i
    , output logic                               io_resp_ready_o
    );
-
-   localparam max_he_n_p = 1024;
-   localparam max_he_q_p = 30;
-   localparam log_max_he_n_p = `BSG_SAFE_CLOG2(max_he_n_p);
-   
    
    // CCE-IO interface is used for uncached requests-read/write memory mapped CSR
    `declare_bp_bedrock_mem_if(paddr_width_p, did_width_p, lce_id_width_p, lce_assoc_p, cce);
@@ -350,6 +348,7 @@ module bp_sacc_he_encryption
              state_n = (dma_state_r == DONE_DMA) ? (enc_dec ? LOAD_B : (alu_done ? NTT_A : WAIT_ALU_CFG)) : LOAD_A;
              dma_start = 1;
              dma_addr = c0_c1 ? a2_ptr : a1_ptr;
+             //to_do: we can fetch 64-512 bit and take 2-16 cycles to write back into the corresponsing input bank
              dma_len = n; //n >> 1; if we need to fetch n/2*64 bit data and write into 2 banks
              dma_load_store = 0;
              he_io_cmd_v_o = '0;
@@ -374,8 +373,7 @@ module bp_sacc_he_encryption
         NTT_A:
           begin
              //start ntt and jump to load b, then check if ntt is done before performing ntt b
-             //state_n = LOAD_B;
-             state_n = WAIT_NTT_A;
+             state_n = LOAD_B;
              dma_start = 0;
              dma_addr = 0;
              dma_len = 0;
@@ -402,8 +400,7 @@ module bp_sacc_he_encryption
           end 
         WAIT_NTT_A:
           begin
-             //state_n = alu_done ? NTT_B : WAIT_NTT_A;
-             state_n = alu_done ? WB_RES : WAIT_NTT_A;
+             state_n = alu_done ? NTT_B : WAIT_NTT_A;
              dma_start = 0;
              dma_addr = 0;
              dma_len = 0;
@@ -485,6 +482,7 @@ module bp_sacc_he_encryption
              state_n = (dma_state_r == DONE_DMA) ? DONE : WB_RES;
              dma_start = 1;
              dma_addr = c0_c1 ? wb2_ptr : wb1_ptr;
+             //to_do: we can write back 2 elements (64 bit) at a time (outputs are read from different banks) 
              dma_len = n;
              dma_load_store = 1;
              he_io_cmd_v_o = '0;
@@ -683,14 +681,10 @@ module bp_sacc_he_encryption
    assign bank_w_v_i[2] = (state_r == LOAD_B) ? io_resp_v_i && ~w_bit_rev_dma_cntr[0] : alu_w_v_i[2];
    assign bank_w_v_i[3] = (state_r == LOAD_B) ? io_resp_v_i && w_bit_rev_dma_cntr[0] : alu_w_v_i[3];
 
-   /*assign bank_r_v_i[0] = alu_r_v_i[0];
+   assign bank_r_v_i[0] = alu_r_v_i[0];
    assign bank_r_v_i[1] = alu_r_v_i[1];
    assign bank_r_v_i[2] = (state_r == WB_RES) ? dma_r_en && ~r_bit_rev_dma_cntr[0] : alu_r_v_i[2];
-   assign bank_r_v_i[3] = (state_r == WB_RES) ? dma_r_en && r_bit_rev_dma_cntr[0] : alu_r_v_i[3];*/
-   assign bank_r_v_i[0] = (state_r == WB_RES) ? dma_r_en && ~r_bit_rev_dma_cntr[0] : alu_r_v_i[0];
-   assign bank_r_v_i[1] = (state_r == WB_RES) ? dma_r_en && r_bit_rev_dma_cntr[0] : alu_r_v_i[1];
-   assign bank_r_v_i[2] = alu_r_v_i[2];
-   assign bank_r_v_i[3] = alu_r_v_i[3];
+   assign bank_r_v_i[3] = (state_r == WB_RES) ? dma_r_en && r_bit_rev_dma_cntr[0] : alu_r_v_i[3];
 
 
    assign bank_w_data_i[0] = (state_r == LOAD_A || state_r == LOAD_C) ? io_resp_data_i : alu_w_data_i[0];
@@ -703,16 +697,11 @@ module bp_sacc_he_encryption
    assign bank_w_addr_i[2] = (state_r == LOAD_B) ? w_bit_rev_dma_cntr[log_max_he_n_p:1] : alu_w_addr_i[2];
    assign bank_w_addr_i[3] = (state_r == LOAD_B) ? w_bit_rev_dma_cntr[log_max_he_n_p:1] : alu_w_addr_i[3];
 
-   /*assign bank_r_addr_i[0] = alu_r_addr_i[0];
+   assign bank_r_addr_i[0] = alu_r_addr_i[0];
    assign bank_r_addr_i[1] = alu_r_addr_i[1];   
    assign bank_r_addr_i[2] = (state_r == WB_RES) ? r_bit_rev_dma_cntr[log_max_he_n_p:1] : alu_r_addr_i[2];
-   assign bank_r_addr_i[3] = (state_r == WB_RES) ? r_bit_rev_dma_cntr[log_max_he_n_p:1] : alu_r_addr_i[3];*/
+   assign bank_r_addr_i[3] = (state_r == WB_RES) ? r_bit_rev_dma_cntr[log_max_he_n_p:1] : alu_r_addr_i[3];
    
-   assign bank_r_addr_i[0] = (state_r == WB_RES) ? r_bit_rev_dma_cntr[log_max_he_n_p:1] : alu_r_addr_i[0];
-   assign bank_r_addr_i[1] = (state_r == WB_RES) ? r_bit_rev_dma_cntr[log_max_he_n_p:1] : alu_r_addr_i[1];   
-   assign bank_r_addr_i[2] = alu_r_addr_i[2];
-   assign bank_r_addr_i[3] = alu_r_addr_i[3];
-      
    genvar gi;
    // Instantiate 4 memory banks
    for (gi = 0; gi < 4; gi = gi + 1) begin : gen_mem
@@ -729,9 +718,11 @@ module bp_sacc_he_encryption
                                   bank_r_data_o[gi]
                                   );
    end // block: gen_mem
-   //this is used, when we are loading/storing 64bit data at a time
+   
+   //this is used if we load/store 64bit data at a time
    //assign dma_io_cmd_data_o = {2'b00,bank_r_data_o[3],2'b00,bank_r_data_o[2]};
    //assign dma_io_cmd_data_o = prev_r_bit_rev_dma_cntr[0] ? bank_r_data_o[3] : bank_r_data_o[2];
+   
    assign dma_io_cmd_data_o = prev_r_bit_rev_dma_cntr[0] ? bank_r_data_o[1] : bank_r_data_o[0];
    
    assign alu_r_data_0 = bank_r_data_o[alu_r_bank_0_delay];
