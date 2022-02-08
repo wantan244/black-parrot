@@ -19,6 +19,7 @@ module bp_me_cache_slice
  import bsg_cache_pkg::*;
  #(parameter bp_params_e bp_params_p = e_bp_default_cfg
    `declare_bp_proc_params(bp_params_p)
+   , parameter cache_data_width_p = l2_data_width_p
 
    `declare_bp_bedrock_mem_if_widths(paddr_width_p, did_width_p, lce_id_width_p, lce_assoc_p, uce)
    `declare_bp_bedrock_mem_if_widths(paddr_width_p, did_width_p, lce_id_width_p, lce_assoc_p, cce)
@@ -57,14 +58,16 @@ module bp_me_cache_slice
   `declare_bp_cfg_bus_s(hio_width_p, core_id_width_p, cce_id_width_p, lce_id_width_p);
   `declare_bp_bedrock_mem_if(paddr_width_p, did_width_p, lce_id_width_p, lce_assoc_p, uce);
 
-  `declare_bsg_cache_pkt_s(daddr_width_p, l2_data_width_p);
+  `declare_bsg_cache_pkt_s(daddr_width_p, cache_data_width_p);
   bsg_cache_pkt_s [l2_banks_p-1:0] cache_pkt_li;
   logic [l2_banks_p-1:0] cache_pkt_v_li, cache_pkt_ready_and_lo;
-  logic [l2_banks_p-1:0][l2_data_width_p-1:0] cache_data_lo;
+  logic [l2_banks_p-1:0][cache_data_width_p-1:0] cache_data_lo;
   logic [l2_banks_p-1:0] cache_data_v_lo, cache_data_yumi_li;
 
   bp_me_cce_to_cache
-   #(.bp_params_p(bp_params_p))
+   #(.bp_params_p(bp_params_p)
+     ,.cache_data_width_p(cache_data_width_p)
+     )
    cce_to_cache
     (.clk_i(clk_i)
      ,.reset_i(reset_i)
@@ -94,7 +97,7 @@ module bp_me_cache_slice
     begin : bank
       bsg_cache
        #(.addr_width_p(daddr_width_p)
-         ,.data_width_p(l2_data_width_p)
+         ,.data_width_p(cache_data_width_p)
          ,.dma_data_width_p(l2_fill_width_p)
          ,.block_size_in_words_p(l2_block_size_in_words_p)
          ,.sets_p((l2_banks_p > 0) ? l2_sets_p : 2)
