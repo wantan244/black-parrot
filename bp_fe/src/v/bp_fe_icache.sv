@@ -467,22 +467,31 @@ module bp_fe_icache
   ///////////////////////////
   // Tag Mem Control
   ///////////////////////////
+  logic tag_mem_fast_read, tag_mem_fast_write, tag_mem_slow_read, tag_mem_slow_write;
+
+  // Tag mem is bypassed if the index is the same on consecutive reads
+  // We also clear if cache is poisoned (happens on TLB write/flush)
   logic tag_mem_last_read_r;
   bsg_dff_reset_set_clear
-   #(.width_p(1), .clear_over_set_p(1))
+   #(.width_p(1))
    tag_mem_last_read_reg
     (.clk_i(clk_i)
      ,.reset_i(reset_i)
-     ,.set_i(tl_we)
-     ,.clear_i(tag_mem_w_li)
+     ,.set_i(tag_mem_fast_read)
+     ,.clear_i(poison_tl_i | tag_mem_fast_write | tag_mem_slow_read | tag_mem_slow_write)
      ,.data_o(tag_mem_last_read_r)
      );
-
-  // Tag mem is bypassed if the index is the same on consecutive reads
   wire tag_mem_bypass = (vaddr_index == vaddr_index_tl) & tag_mem_last_read_r;
-  wire tag_mem_fast_read = (tl_we & ~tag_mem_bypass);
-  assign tag_mem_v_li = tag_mem_fast_read | tag_mem_pkt_yumi_o;
-  assign tag_mem_w_li = tag_mem_pkt_yumi_o & (tag_mem_pkt_cast_i.opcode != e_cache_tag_mem_read);
+
+  // We can calculate the data mem bank needed to be read if we know the last read tag
+  wire data_mem_bank_select_v = (vaddr_vtag == vaddr_vtag_tl) & tag_mem_bypass;
+
+  assign tag_mem_fast_read = (tl_we & ~tag_mem_bypass);
+  assign tag_mem_fast_write = '0;
+  assign tag_mem_slow_write = tag_mem_pkt_yumi_o & (tag_mem_pkt_cast_i.opcode != e_cache_tag_mem_read);
+  assign tag_mem_slow_read = tag_mem_pkt_yumi_o & (tag_mem_pkt_cast_i.opcode == e_cache_tag_mem_read);
+  assign tag_mem_v_li = tag_mem_fast_read | tag_mem_fast_write | tag_mem_slow_write | tag_mem_slow_read;
+  assign tag_mem_w_li = tag_mem_fast_write | tag_mem_slow_write;
   assign tag_mem_addr_li = tag_mem_fast_read
     ? vaddr_index
     : tag_mem_pkt_cast_i.index;
@@ -532,34 +541,7 @@ module bp_fe_icache
   ///////////////////////////
   // Data Mem Control
   ///////////////////////////
-  logic data_mem_last_read_r;
-  bsg_dff_reset
-   #(.width_p(1))
-   data_mem_last_read_reg
-    (.clk_i(clk_i)
-     ,.reset_i(reset_i)
-     ,.data_i(tl_we)
-     ,.data_o(data_mem_last_read_r)
-     );
-
-  logic [assoc_p-1:0] vaddr_bank_dec;
-  bsg_decode
-   #(.num_out_p(assoc_p))
-   bypass_bank_decode
-    (.i(vaddr_bank)
-     ,.o(vaddr_bank_dec)
-     );
-
-  wire data_mem_bypass = (vaddr_vtag == vaddr_vtag_tl) & (vaddr_index == vaddr_index_tl) & data_mem_last_read_r;
-  // During a data mem bypass, only the necessary bank of data memory is read
-  logic [assoc_p-1:0] data_mem_bypass_select;
-  bsg_adder_one_hot
-   #(.width_p(assoc_p))
-   data_mem_bank_select_adder
-    (.a_i(hit_v_tl)
-     ,.b_i(vaddr_bank_dec)
-     ,.o(data_mem_bypass_select)
-     );
+  logic [assoc_p-1:0] data_mem_fast_read, data_mem_fast_write, data_mem_slow_read, data_mem_slow_write;
 
   wire [`BSG_SAFE_CLOG2(fill_width_p)-1:0] write_data_rot_li = data_mem_pkt_cast_i.way_id*bank_width_lp;
   // Expand the bank write mask to bank width
@@ -576,9 +558,7 @@ module bp_fe_icache
   logic [block_size_in_fill_lp-1:0][fill_size_in_bank_lp-1:0] data_mem_pkt_fill_mask_expanded;
   // use fill_index to generate bank write mask
   for (genvar i = 0; i < block_size_in_fill_lp; i++)
-    begin : fill_mask
-      assign data_mem_pkt_fill_mask_expanded[i] = {fill_size_in_bank_lp{data_mem_pkt_cast_i.fill_index[i]}};
-    end
+    assign data_mem_pkt_fill_mask_expanded[i] = {fill_size_in_bank_lp{data_mem_pkt_cast_i.fill_index[i]}};
 
   logic [assoc_p-1:0] data_mem_write_bank_mask;
   wire [`BSG_SAFE_CLOG2(assoc_p)-1:0] write_mask_rot_li = data_mem_pkt_cast_i.way_id;
@@ -590,23 +570,47 @@ module bp_fe_icache
      ,.o(data_mem_write_bank_mask)
      );
 
+  // During a data mem bypass, only the necessary bank of data memory is read
+  logic [assoc_p-1:0] vaddr_bank_dec;
+  bsg_decode
+   #(.num_out_p(assoc_p))
+   bypass_bank_decode
+    (.i(vaddr_bank)
+     ,.o(vaddr_bank_dec)
+     );
+
+  logic [assoc_p-1:0] data_mem_bank_select;
+  bsg_adder_one_hot
+   #(.width_p(assoc_p))
+   data_mem_bank_select_adder
+    (.a_i(hit_v_tl)
+     ,.b_i(vaddr_bank_dec)
+     ,.o(data_mem_bank_select)
+     );
+
+  wire [assoc_p-1:0] data_mem_bypass_read = {assoc_p{data_mem_bank_select_v}} & ~data_mem_bank_select;
+
   wire data_mem_slow_uncached = data_mem_pkt_v_i & (data_mem_pkt_cast_i.opcode == e_cache_data_mem_uncached);
-  wire data_mem_slow_read     = data_mem_pkt_v_i & (data_mem_pkt_cast_i.opcode == e_cache_data_mem_read);
-  logic [assoc_p-1:0] data_mem_fast_read;
   for (genvar i = 0; i < assoc_p; i++)
     begin : data_mem_lines
-      wire data_mem_slow_write     = data_mem_pkt_v_i & (data_mem_pkt_cast_i.opcode == e_cache_data_mem_write) & data_mem_write_bank_mask[i];
-      assign data_mem_fast_read[i] = tl_we & (~data_mem_bypass | data_mem_bypass_select[i]);
+      assign data_mem_slow_write[i] =
+        data_mem_pkt_yumi_o & (data_mem_pkt_cast_i.opcode == e_cache_data_mem_write) & data_mem_write_bank_mask[i];
+      assign data_mem_slow_read[i] =
+        data_mem_pkt_yumi_o & (data_mem_pkt_cast_i.opcode == e_cache_data_mem_read);
+      assign data_mem_fast_read[i] = tl_we & is_fetch & ~data_mem_bypass_read[i];
+      assign data_mem_fast_write[i] = '0;
 
-      assign data_mem_v_li[i] = data_mem_fast_read[i] | (data_mem_pkt_yumi_o & (data_mem_slow_read | data_mem_slow_write));
-      assign data_mem_w_li[i] = data_mem_pkt_yumi_o & data_mem_slow_write;
+      assign data_mem_v_li[i] = data_mem_fast_read[i] | data_mem_slow_read[i] | data_mem_slow_write[i];
+      assign data_mem_w_li[i] = data_mem_slow_write[i];
       wire [bindex_width_lp-1:0] data_mem_pkt_offset = (bindex_width_lp'(i) - data_mem_pkt_cast_i.way_id);
-      assign data_mem_addr_li[i] = data_mem_fast_read[i]
+      assign data_mem_addr_li[i] = (data_mem_fast_read[i] | data_mem_fast_write[i])
         ? {vaddr_index, {(assoc_p > 1){vaddr_bank}}}
         : {data_mem_pkt_cast_i.index, {(assoc_p > 1){data_mem_pkt_offset}}};
       assign data_mem_data_li[i] = data_mem_pkt_data_li[i];
     end
-  assign data_mem_pkt_yumi_o = data_mem_pkt_v_i & (~|data_mem_fast_read | data_mem_slow_uncached);
+  assign data_mem_pkt_yumi_o = (data_mem_pkt_cast_i.opcode == e_cache_data_mem_uncached)
+    ? data_mem_pkt_v_i
+    : data_mem_pkt_v_i & ~|data_mem_fast_read;
 
   logic [lg_icache_assoc_lp-1:0] data_mem_pkt_way_r;
   bsg_dff
@@ -629,12 +633,15 @@ module bp_fe_icache
   ///////////////////////////
   // Stat Mem Control
   ///////////////////////////
-  wire stat_mem_fast_read = (v_tv_r & ~data_v_o & cached_op_tv_r);
-  wire stat_mem_fast_write = (v_tv_r & data_v_o & cached_op_tv_r);
-  wire stat_mem_slow_write = stat_mem_pkt_v_i & (stat_mem_pkt_cast_i.opcode != e_cache_stat_mem_read);
+  logic stat_mem_fast_read, stat_mem_fast_write, stat_mem_slow_read, stat_mem_slow_write;
+
+  assign stat_mem_fast_read = (v_tv_r & ~data_v_o & cached_op_tv_r);
+  assign stat_mem_fast_write = (v_tv_r & data_v_o & cached_op_tv_r);
+  assign stat_mem_slow_read = stat_mem_pkt_yumi_o & (stat_mem_pkt_cast_i.opcode == e_cache_stat_mem_read);
+  assign stat_mem_slow_write = stat_mem_pkt_yumi_o & (stat_mem_pkt_cast_i.opcode != e_cache_stat_mem_read);
   assign stat_mem_pkt_yumi_o = stat_mem_pkt_v_i & ~stat_mem_fast_write & ~stat_mem_fast_read;
-  assign stat_mem_v_li = stat_mem_fast_read | stat_mem_fast_write | stat_mem_pkt_yumi_o;
-  assign stat_mem_w_li = stat_mem_fast_write | (stat_mem_pkt_yumi_o & stat_mem_slow_write);
+  assign stat_mem_v_li = stat_mem_fast_read | stat_mem_fast_write | stat_mem_slow_write | stat_mem_slow_read;
+  assign stat_mem_w_li = stat_mem_fast_write | stat_mem_slow_write;
   assign stat_mem_addr_li = (stat_mem_fast_write | stat_mem_fast_read)
     ? paddr_tv_r[block_offset_width_lp+:sindex_width_lp]
     : stat_mem_pkt_cast_i.index;
