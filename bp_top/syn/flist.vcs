@@ -2,6 +2,7 @@
 # BASEJUMP_STL includes
 +incdir+$BASEJUMP_STL_DIR/bsg_cache
 +incdir+$BASEJUMP_STL_DIR/bsg_dataflow
++incdir+$BASEJUMP_STL_DIR/bsg_dmc
 +incdir+$BASEJUMP_STL_DIR/bsg_mem
 +incdir+$BASEJUMP_STL_DIR/bsg_misc
 +incdir+$BASEJUMP_STL_DIR/bsg_test
@@ -45,10 +46,12 @@ $BASEJUMP_STL_DIR/bsg_async/bsg_launch_sync_sync.v
 $BASEJUMP_STL_DIR/bsg_async/bsg_async_ptr_gray.v
 $BASEJUMP_STL_DIR/bsg_cache/bsg_cache.v
 $BASEJUMP_STL_DIR/bsg_cache/bsg_cache_dma.v
+$BASEJUMP_STL_DIR/bsg_cache/bsg_cache_dma_to_wormhole.v
 $BASEJUMP_STL_DIR/bsg_cache/bsg_cache_miss.v
 $BASEJUMP_STL_DIR/bsg_cache/bsg_cache_decode.v
 $BASEJUMP_STL_DIR/bsg_cache/bsg_cache_sbuf.v
 $BASEJUMP_STL_DIR/bsg_cache/bsg_cache_sbuf_queue.v
+$BASEJUMP_STL_DIR/bsg_cache/bsg_wormhole_to_cache_dma_fanout.v
 $BASEJUMP_STL_DIR/bsg_dataflow/bsg_channel_tunnel.v
 $BASEJUMP_STL_DIR/bsg_dataflow/bsg_channel_tunnel_in.v
 $BASEJUMP_STL_DIR/bsg_dataflow/bsg_channel_tunnel_out.v
@@ -103,6 +106,7 @@ $BASEJUMP_STL_DIR/bsg_misc/bsg_buf.v
 $BASEJUMP_STL_DIR/bsg_misc/bsg_buf_ctrl.v
 $BASEJUMP_STL_DIR/bsg_misc/bsg_circular_ptr.v
 $BASEJUMP_STL_DIR/bsg_misc/bsg_concentrate_static.v
+$BASEJUMP_STL_DIR/bsg_misc/bsg_counting_leading_zeros.v
 $BASEJUMP_STL_DIR/bsg_misc/bsg_counter_clear_up.v
 $BASEJUMP_STL_DIR/bsg_misc/bsg_counter_clear_up_one_hot.v
 $BASEJUMP_STL_DIR/bsg_misc/bsg_counter_set_down.v
@@ -124,6 +128,7 @@ $BASEJUMP_STL_DIR/bsg_misc/bsg_dff_reset_set_clear.v
 $BASEJUMP_STL_DIR/bsg_misc/bsg_edge_detect.v
 $BASEJUMP_STL_DIR/bsg_misc/bsg_encode_one_hot.v
 $BASEJUMP_STL_DIR/bsg_misc/bsg_expand_bitmask.v
+$BASEJUMP_STL_DIR/bsg_misc/bsg_gray_to_binary.v
 $BASEJUMP_STL_DIR/bsg_misc/bsg_hash_bank.v
 $BASEJUMP_STL_DIR/bsg_misc/bsg_hash_bank_reverse.v
 $BASEJUMP_STL_DIR/bsg_misc/bsg_idiv_iterative.v
@@ -203,7 +208,8 @@ $BP_BE_DIR/src/v/bp_be_top.sv
 # Calculator
 $BP_BE_DIR/src/v/bp_be_calculator/bp_be_calculator_top.sv
 $BP_BE_DIR/src/v/bp_be_calculator/bp_be_csr.sv
-$BP_BE_DIR/src/v/bp_be_calculator/bp_be_fp_to_rec.sv
+$BP_BE_DIR/src/v/bp_be_calculator/bp_be_fp_to_reg.sv
+$BP_BE_DIR/src/v/bp_be_calculator/bp_be_nan_unbox.sv
 $BP_BE_DIR/src/v/bp_be_calculator/bp_be_pipe_int.sv
 $BP_BE_DIR/src/v/bp_be_calculator/bp_be_pipe_aux.sv
 $BP_BE_DIR/src/v/bp_be_calculator/bp_be_pipe_ctl.sv
@@ -212,7 +218,7 @@ $BP_BE_DIR/src/v/bp_be_calculator/bp_be_pipe_long.sv
 $BP_BE_DIR/src/v/bp_be_calculator/bp_be_pipe_mem.sv
 $BP_BE_DIR/src/v/bp_be_calculator/bp_be_pipe_sys.sv
 $BP_BE_DIR/src/v/bp_be_calculator/bp_be_ptw.sv
-$BP_BE_DIR/src/v/bp_be_calculator/bp_be_rec_to_fp.sv
+$BP_BE_DIR/src/v/bp_be_calculator/bp_be_reg_to_fp.sv
 # Checker
 $BP_BE_DIR/src/v/bp_be_checker/bp_be_cmd_queue.sv
 $BP_BE_DIR/src/v/bp_be_checker/bp_be_detector.sv
@@ -243,7 +249,8 @@ $BP_ME_DIR/src/v/dev/bp_me_bedrock_register.sv
 $BP_ME_DIR/src/v/dev/bp_me_cce_to_cache.sv
 $BP_ME_DIR/src/v/dev/bp_me_dram_hash_decode.sv
 $BP_ME_DIR/src/v/dev/bp_me_dram_hash_encode.sv
-$BP_ME_DIR/src/v/dev/bp_me_cfg.sv
+$BP_ME_DIR/src/v/dev/bp_me_cache_slice.sv
+$BP_ME_DIR/src/v/dev/bp_me_cfg_slice.sv
 $BP_ME_DIR/src/v/dev/bp_me_clint_slice.sv
 $BP_ME_DIR/src/v/dev/bp_me_loopback.sv
 # CCE
@@ -288,7 +295,6 @@ $BP_ME_DIR/src/v/network/bp_me_burst_to_lite.sv
 $BP_ME_DIR/src/v/network/bp_me_wormhole_to_burst.sv
 $BP_ME_DIR/src/v/network/bp_me_burst_to_wormhole.sv
 $BP_ME_DIR/src/v/network/bp_me_xbar_stream.sv
-$BP_ME_DIR/src/v/network/bp_me_xbar_stream_buffered.sv
 $BP_ME_DIR/src/v/network/bp_me_stream_to_burst.sv
 $BP_ME_DIR/src/v/network/bp_me_burst_to_stream.sv
 $BP_ME_DIR/src/v/network/bp_me_stream_pump_in.sv
@@ -325,10 +331,9 @@ $BP_TOP_DIR/src/v/bp_tile_node.sv
 
 # BSG Staging area
 $BP_COMMON_DIR/src/v/bsg_async_noc_link.sv
-$BP_COMMON_DIR/src/v/bsg_cache_dma_to_wormhole.v
 $BP_COMMON_DIR/src/v/bsg_deff_reset.v
 $BP_COMMON_DIR/src/v/bsg_dff_sync_read.v
-$BP_COMMON_DIR/src/v/bsg_wormhole_to_cache_dma_fanout.v
 $BP_COMMON_DIR/src/v/bsg_rom_param.v
+$BP_COMMON_DIR/src/v/bsg_crossbar_control_locking_o_by_i.v
 $BASEJUMP_STL_DIR/bsg_misc/bsg_dlatch.v
 

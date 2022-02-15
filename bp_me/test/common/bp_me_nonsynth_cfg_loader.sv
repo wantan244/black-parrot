@@ -1,28 +1,32 @@
 /**
  *
  * Name:
- *   bp_cce_mmio_cfg_loader.v
+ *   bp_me_nonsynth_cfg_loader.sv
  *
  * Description:
+ *   This is a nonsynth config bus initializer. It issues IO commands to setup the cfg bus.
+ *
+ *   The skip_init_p parameter controls whether or not most of initialization is skipped, and
+ *   leaves the LCEs and CCEs in uncached only mode.
  *
  */
 
 `include "bp_common_defines.svh"
 `include "bp_me_defines.svh"
 
-module bp_cce_mmio_cfg_loader
+module bp_me_nonsynth_cfg_loader
   import bp_common_pkg::*;
   import bp_be_pkg::*;
   import bp_me_pkg::*;
   #(parameter bp_params_e bp_params_p = e_bp_default_cfg
     `declare_bp_proc_params(bp_params_p)
-    `declare_bp_bedrock_mem_if_widths(paddr_width_p, did_width_p, lce_id_width_p, lce_assoc_p, cce)
+    `declare_bp_bedrock_mem_if_widths(paddr_width_p, did_width_p, lce_id_width_p, lce_assoc_p)
 
     , parameter `BSG_INV_PARAM(inst_width_p)
     , parameter `BSG_INV_PARAM(inst_ram_addr_width_p)
     , parameter `BSG_INV_PARAM(inst_ram_els_p)
     , parameter cce_ucode_filename_p  = "cce_ucode.mem"
-    , parameter skip_ram_init_p       = 0
+    , parameter skip_init_p           = 0
     , parameter clear_freeze_p        = 0
     // Change the last 8 bits of the data below to indicate the hios
     // to be enabled.
@@ -37,14 +41,14 @@ module bp_cce_mmio_cfg_loader
 
    // BedRock Stream
    // TODO: convert yumi_i to ready_and_i
-   , output logic [cce_mem_header_width_lp-1:0]      io_cmd_header_o
+   , output logic [mem_header_width_lp-1:0]          io_cmd_header_o
    , output logic [dword_width_gp-1:0]               io_cmd_data_o
    , output logic                                    io_cmd_v_o
    , input                                           io_cmd_yumi_i
    , output logic                                    io_cmd_last_o
 
    // BedRock Stream
-   , input [cce_mem_header_width_lp-1:0]             io_resp_header_i
+   , input [mem_header_width_lp-1:0]                 io_resp_header_i
    , input [dword_width_gp-1:0]                      io_resp_data_i
    , input                                           io_resp_v_i
    , output logic                                    io_resp_ready_and_o
@@ -56,12 +60,12 @@ module bp_cce_mmio_cfg_loader
   wire unused0 = &{io_resp_header_i, io_resp_data_i, io_resp_last_i};
   assign io_resp_ready_and_o = 1'b1;
 
-  `declare_bp_bedrock_mem_if(paddr_width_p, did_width_p, lce_id_width_p, lce_assoc_p, cce);
+  `declare_bp_bedrock_mem_if(paddr_width_p, did_width_p, lce_id_width_p, lce_assoc_p);
   `declare_bp_memory_map(paddr_width_p, daddr_width_p);
 
-  bp_bedrock_cce_mem_header_s io_cmd_cast_o;
-  bp_bedrock_cce_mem_header_s io_resp_cast_i;
-  bp_bedrock_cce_mem_payload_s io_cmd_payload;
+  bp_bedrock_mem_header_s io_cmd_cast_o;
+  bp_bedrock_mem_header_s io_resp_cast_i;
+  bp_bedrock_mem_payload_s io_cmd_payload;
 
   assign io_cmd_header_o = io_cmd_cast_o;
   assign io_resp_cast_i = io_resp_header_i;
@@ -216,14 +220,18 @@ module bp_cce_mmio_cfg_loader
 
       case (state_r)
         RESET: begin
-          state_n = skip_ram_init_p ? BP_FREEZE_CLR : BP_FREEZE_SET;
+          state_n = BP_FREEZE_SET;
 
           sync_cnt_clr = 1'b1;
           ucode_cnt_clr = 1'b1;
           core_cnt_clr = 1'b1;
         end
         BP_FREEZE_SET: begin
-          state_n = core_prog_done ? SEND_RAM : BP_FREEZE_SET;
+          state_n = core_prog_done
+                    ? skip_init_p
+                      ? BP_FREEZE_CLR
+                      : SEND_RAM
+                    : BP_FREEZE_SET;
 
           core_cnt_inc = ~core_prog_done;
           core_cnt_clr = core_prog_done;
