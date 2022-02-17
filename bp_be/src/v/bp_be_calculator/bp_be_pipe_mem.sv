@@ -281,6 +281,18 @@ module bp_be_pipe_mem
      ,.dcache_early_data_i(dcache_early_data)
      );
 
+  // We synchronize this signal to posedge to squash a critical half-cycle path
+  //   for the structural hazard. This is correct because the dependent instruction
+  //   will not start until the next cycle.
+  logic ptw_busy_r;
+  bsg_dff
+   #(.width_p(1))
+   ptw_busy_reg
+    (.clk_i(clk_i)
+     ,.data_i(ptw_busy)
+     ,.data_o(ptw_busy_r)
+     );
+
   bp_be_dcache
     #(.bp_params_p(bp_params_p))
     dcache
@@ -384,7 +396,7 @@ module bp_be_pipe_mem
   assign load_misaligned_v_o    = load_misaligned_v;
 
   assign ready_o                = dcache_ready_lo;
-  assign ptw_busy_o             = ptw_busy;
+  assign ptw_busy_o             = ptw_busy_r;
   assign early_data_o           = dcache_early_data;
   assign early_fflags_o         = dcache_early_fflags;
   assign final_data_o           = dcache_final_data;
