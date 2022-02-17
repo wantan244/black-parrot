@@ -473,7 +473,7 @@ module bp_fe_icache
   // We also clear if cache is poisoned (happens on TLB write/flush)
   logic tag_mem_last_read_r;
   bsg_dff_reset_set_clear
-   #(.width_p(1))
+   #(.width_p(1), .clear_over_set_p(1))
    tag_mem_last_read_reg
     (.clk_i(clk_i)
      ,.reset_i(reset_i)
