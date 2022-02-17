@@ -40,7 +40,7 @@ module ntt_alu
   // total_delay = mem_read + (BFU) + seq1
   localparam total_delay = 1 + (3 * dm + 2) + 1;
 
-  // Address conversion for writing
+  // Address conversion for writing NTT inputs
   function automatic [max_logn-1:0] bit_rev(input [max_logn-1:0] in,
                                               input [max_logn-1:0] logn);
     logic [max_logn-1:0] in_rev;
@@ -48,14 +48,30 @@ module ntt_alu
     return in_rev >> (max_logn - logn);
   endfunction
 
-  // Address conversion for reading
-  function automatic [max_logn-1:0] cnt2phyaddr(input [max_logn-1:0] in,
+  // Address conversion for reading NTT outputs
+  function automatic [max_logn-1:0] cnt2ntt_addr(input [max_logn-1:0] in,
                                                   input [max_logn-1:0] logn);
     // output = ({in_rev[logn-2:0], in_rev[logn-1]})
     logic [max_logn-1:0] in_rev, res, all_ones;
     all_ones = '1;
     in_rev = bit_rev(in, logn);
     res = {in_rev[max_logn-2:0], in_rev[logn-1]};
+    res = res & (all_ones >> (max_logn - logn));
+    return res;
+  endfunction
+
+  // Address conversion for writing INTT inputs is not needed. (Just use cnt as address)
+  /*.....
+  .......
+  .....*/
+
+  // Address conversion for reading INTT outputs
+  function automatic [max_logn-1:0] cnt2intt_addr(input [max_logn-1:0] in,
+                                                  input [max_logn-1:0] logn);
+    // output = ({in_rev[logn-2:0], in_rev[logn-1]})
+    logic [max_logn-1:0] in_rev, res, all_ones;
+    all_ones = '1;
+    res = {in[max_logn-2:0], in[logn-1]};
     res = res & (all_ones >> (max_logn - logn));
     return res;
   endfunction
@@ -192,7 +208,7 @@ module ntt_alu
   assign pr_seq1_out = pr[(1+(3*dm+2)+1)-1];
 
 
-  logic [max_logn:0] n, logn, stage, m, jj, kk, kk_rev, kk_phy;
+  logic [max_logn:0] n, logn, stage, m, jj, kk, kk_rev, kk_ntt_phy, kk_intt_phy;
   logic hold, first_hold;
   logic seq_flag;
   logic [max_logq-1:0] curr_w;
@@ -264,21 +280,21 @@ module ntt_alu
               subop <= NTT_SUBOP_NTT_OR_ADD;
               state <= STATE_PRE_POST_PROC;
             end
-            OP_INTT0: begin
-              stage <= 0;
-              m <= 2;
-              jj <= 0;
-              kk <= 0;
-              curr_w <= 1;
-              curr_phi <= n_inv;
-              hold <= 0;
-              first_hold <= 0;
-              seq_flag <= 0;
+            // OP_INTT0: begin
+            //   stage <= 0;
+            //   m <= 2;
+            //   jj <= 0;
+            //   kk <= 0;
+            //   curr_w <= 1;
+            //   curr_phi <= n_inv;
+            //   hold <= 0;
+            //   first_hold <= 0;
+            //   seq_flag <= 0;
 
-              poly_idx <= 0;
-              subop <= NTT_SUBOP_INTT_OR_MULT;
-              state <= STATE_NTT_INTT;
-            end
+            //   poly_idx <= 0;
+            //   subop <= NTT_SUBOP_INTT_OR_MULT;
+            //   state <= STATE_NTT_INTT;
+            // end
             OP_INTT1: begin
               stage <= 0;
               m <= 2;
@@ -476,7 +492,9 @@ module ntt_alu
 
     // Bit-reversed kk
     kk_rev = bit_rev(kk, logn);
-    kk_phy = cnt2phyaddr(kk, logn);
+    kk_ntt_phy = cnt2ntt_addr(kk, logn);
+    kk_intt_phy = cnt2intt_addr(kk, logn);
+
 
     // generate read/write address/bank
     case (state)
@@ -557,12 +575,12 @@ module ntt_alu
           // w/r port 1 not used
           pr_in.seq1_mode = 0;
 
-          if (subop == NTT_SUBOP_NTT_OR_ADD) begin  // pre-process
+          if (subop == NTT_SUBOP_NTT_OR_ADD) begin  // pre-process for ntt
             r_addr_0 = kk_rev[max_logn-1:1];
             r_bank_0 = {poly_idx, kk_rev[0]};
-          end else begin  // post_proc
-            r_addr_0 = kk_phy[max_logn-1:1];
-            r_bank_0 = {poly_idx, kk_phy[0]};
+          end else begin  // post-process for intt
+            r_addr_0 = kk_intt_phy[max_logn-1:1];
+            r_bank_0 = {poly_idx, kk_intt_phy[0]};
           end
           r_en_0 = 1;
 

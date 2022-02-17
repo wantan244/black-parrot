@@ -9,7 +9,7 @@ module bp_sacc_he_encryption
    `declare_bp_proc_params(bp_params_p)
    `declare_bp_bedrock_mem_if_widths(paddr_width_p, did_width_p, lce_id_width_p, lce_assoc_p, cce)
    , localparam cfg_bus_width_lp= `bp_cfg_bus_width(hio_width_p, core_id_width_p, cce_id_width_p, lce_id_width_p)
-   , localparam max_he_n_p = 1024
+   , localparam max_he_n_p = 4096
    , localparam max_he_q_p = 30
    , localparam log_max_he_n_p = `BSG_SAFE_CLOG2(max_he_n_p)
    )
@@ -162,7 +162,7 @@ module bp_sacc_he_encryption
    logic [max_he_q_p-1:0]   alu_cfg_w;
    logic [max_he_q_p-1:0]   alu_cfg_phi;
    logic [max_he_q_p-1:0]   alu_cfg_n_inv;
-
+   
    alu_op_e alu_op;
    
    logic        cfg_start, cfg_done, enc_dec, res_stat;
@@ -171,7 +171,7 @@ module bp_sacc_he_encryption
    logic [cce_block_width_p-1:0] he_io_cmd_data_o;
    logic [63:0]  w_bit_rev_dma_cntr, r_bit_rev_dma_cntr, prev_r_bit_rev_dma_cntr; 
   
-   typedef enum logic [3:0]{
+   typedef enum logic [4:0]{
                             RESET
                             , HE_CFG
                             , ALU_CFG
@@ -183,6 +183,7 @@ module bp_sacc_he_encryption
                             , WAIT_NTT_A
                             , MULT   //takes one cycle, call point_wise mul and jump to the next state, writeback the resutls to A, fill_buffer_count = 2
                             , LOAD_C //load c regardless of MULT state, you wont overwire the required inputs of mul, gauranteed
+                            , NTT_C
                             , ADD
                             , INTT
                             , WB_RES
@@ -413,6 +414,9 @@ module bp_sacc_he_encryption
         NTT_B:
           begin
              state_n = (alu_done && ~prev_alu_done) ? MULT : NTT_B;
+             //to test all the data/computation results return back in bank0-1 
+             //state_n = (alu_done && ~prev_alu_done) ? WB_RES : NTT_B;
+             
              dma_start = 0;
              dma_addr = 0;
              dma_len = 0;
@@ -427,7 +431,7 @@ module bp_sacc_he_encryption
           begin
              //to_do: we can overlap mult with load_c
              //since load is slower, we won't overwrite the inputs
-             state_n = (alu_done && ~prev_alu_done) ? (enc_dec ? ADD : LOAD_C) : MULT;
+             state_n = (alu_done && ~prev_alu_done) ? LOAD_C : MULT;
              dma_start = 0;
              dma_addr = 0;
              dma_len = 0;
@@ -440,7 +444,8 @@ module bp_sacc_he_encryption
           end
         LOAD_C:
           begin
-             state_n = (dma_state_r == DONE_DMA) ? ADD : LOAD_C;
+             state_n = (dma_state_r == DONE_DMA) ? (enc_dec ? ADD : NTT_C) : LOAD_C;
+             //state_n = (dma_state_r == DONE_DMA) ? NTT_C : LOAD_C;
              dma_start = 1;
              dma_addr = c0_c1 ? c2_ptr : c1_ptr;
              dma_len = n;
@@ -450,10 +455,10 @@ module bp_sacc_he_encryption
              he_io_cmd_data_o = '0;
              alu_op = OP_NOOP;
              
-          end
-        ADD:
+          end        
+        NTT_C:
           begin
-             state_n = (alu_done  && ~prev_alu_done) ? WB_RES : ADD;
+             state_n = (alu_done && ~prev_alu_done) ? ADD : NTT_C;
              dma_start = 0;
              dma_addr = 0;
              dma_len = 0;
@@ -461,12 +466,25 @@ module bp_sacc_he_encryption
              he_io_cmd_v_o = '0;
              he_io_cmd_header_cast_o = '0;
              he_io_cmd_data_o = '0;
-             alu_op =  prev_alu_done ? OP_ADD : OP_NOOP;
+             alu_op = prev_alu_done ? OP_NTT0 : OP_NOOP;
+             
+          end
+        ADD:
+          begin
+             state_n = (alu_done  && ~prev_alu_done) ? (enc_dec ? INTT : WB_RES) : ADD;
+             dma_start = 0;
+             dma_addr = 0;
+             dma_len = 0;
+             dma_load_store = 0;
+             he_io_cmd_v_o = '0;
+             he_io_cmd_header_cast_o = '0;
+             he_io_cmd_data_o = '0;
+             alu_op = prev_alu_done ? OP_ADD : OP_NOOP;
              
           end
           INTT:
           begin
-             state_n = alu_done ? WB_RES : INTT;
+             state_n = (alu_done && ~prev_alu_done) ? WB_RES : INTT;
              dma_start = 0;
              dma_addr = 0;
              dma_len = 0;
@@ -474,7 +492,7 @@ module bp_sacc_he_encryption
              he_io_cmd_v_o = '0;
              he_io_cmd_header_cast_o = '0;
              he_io_cmd_data_o = '0;
-             alu_op = OP_INTT1;
+             alu_op = prev_alu_done ? OP_INTT1 : OP_NOOP;
               
           end
         WB_RES:
@@ -494,12 +512,19 @@ module bp_sacc_he_encryption
         DONE:
           begin
              state_n = (c0_c1 && ~enc_dec) ? LOAD_A : INTR_D;
+             //to test all the data/computation results return back in bank0-1 
+             //state_n = INTR_D;
+             
              dma_start = 0;
              dma_addr = 0;
              dma_len = 0;
              dma_load_store = 0;
              //activate interrupt
              he_io_cmd_v_o = ~c0_c1 || enc_dec;
+             
+             //to test all the data/computation results return back in bank0-1 
+             //he_io_cmd_v_o = c0_c1 || enc_dec;
+            
              he_io_cmd_header_cast_o.size = e_bedrock_msg_size_8;
              he_io_cmd_header_cast_o.payload = cmd_payload;
              he_io_cmd_header_cast_o.addr = 40'h30_0000;
@@ -567,7 +592,7 @@ module bp_sacc_he_encryption
         .cfg_w(alu_cfg_w),
         .cfg_phi(alu_cfg_phi),
         .cfg_n_inv(alu_cfg_n_inv),
-                
+        
         .r_addr_0(alu_r_addr_0),
         .r_addr_1(alu_r_addr_1),
         .r_bank_0(alu_r_bank_0),
@@ -602,8 +627,8 @@ module bp_sacc_he_encryption
    endfunction
 
   // Address conversion for reading
-  function automatic [log_max_he_n_p-1:0] cnt2phyaddr(input [log_max_he_n_p-1:0] in,
-                                                      input [log_max_he_n_p-1:0] logn);
+  function automatic [log_max_he_n_p-1:0] cnt2ntt_addr(input [log_max_he_n_p-1:0] in,
+                                                       input [log_max_he_n_p-1:0] logn);
     // output = ({in_rev[logn-2:0], in_rev[logn-1]})
     logic [log_max_he_n_p-1:0] in_rev, res, all_ones;
     all_ones = '1;
@@ -611,8 +636,17 @@ module bp_sacc_he_encryption
     res = {in_rev[log_max_he_n_p-2:0], in_rev[logn-1]};
     res = res & (all_ones >> (log_max_he_n_p - logn));
     return res;
-  endfunction // cnt2phyaddr
-   
+  endfunction 
+
+   // Address conversion for reading INTT outputs
+   function automatic [log_max_he_n_p-1:0] cnt2intt_addr(input [log_max_he_n_p-1:0] in,
+                                                         input [log_max_he_n_p-1:0] logn);
+      logic [log_max_he_n_p-1:0]                                                    in_rev, res, all_ones;
+      all_ones = '1;
+      res = {in[log_max_he_n_p-2:0], in[logn-1]};
+      res = res & (all_ones >> (log_max_he_n_p - logn));
+      return res;
+   endfunction
    //////////////////////////////////BUFFERS////////////////////////////////////////////
    // instantiate 4 banks 
    logic [3:0]                       alu_w_v_i, alu_r_v_i;
@@ -673,8 +707,11 @@ module bp_sacc_he_encryption
    //decryption ==> INTT results in bank2-3
 
    //writes to different banks but the same index in the banks
-   assign w_bit_rev_dma_cntr = bit_rev (dma_cntr, log_max_he_n_p);
-   assign r_bit_rev_dma_cntr = cnt2phyaddr (dma_state_r == RESET_DMA ? dma_cntr : dma_cntr+1, log_max_he_n_p);
+   assign w_bit_rev_dma_cntr = enc_dec ? dma_cntr : bit_rev (dma_cntr, log_max_he_n_p);
+   assign r_bit_rev_dma_cntr = enc_dec ?
+                               cnt2intt_addr (dma_state_r == RESET_DMA ? dma_cntr : dma_cntr+1, log_max_he_n_p)
+                               : 
+                               cnt2ntt_addr  (dma_state_r == RESET_DMA ? dma_cntr : dma_cntr+1, log_max_he_n_p);
    
    assign bank_w_v_i[0] = (state_r == LOAD_A || state_r == LOAD_C) ? io_resp_v_i && ~w_bit_rev_dma_cntr[0] : alu_w_v_i[0];
    assign bank_w_v_i[1] = (state_r == LOAD_A || state_r == LOAD_C) ? io_resp_v_i && w_bit_rev_dma_cntr[0] : alu_w_v_i[1];
@@ -686,6 +723,11 @@ module bp_sacc_he_encryption
    assign bank_r_v_i[2] = (state_r == WB_RES) ? dma_r_en && ~r_bit_rev_dma_cntr[0] : alu_r_v_i[2];
    assign bank_r_v_i[3] = (state_r == WB_RES) ? dma_r_en && r_bit_rev_dma_cntr[0] : alu_r_v_i[3];
 
+   //to test all the data/computation results return back in bank0-1
+   /*assign bank_r_v_i[0] = (state_r == WB_RES) ? dma_r_en && ~r_bit_rev_dma_cntr[0] : alu_r_v_i[0];
+   assign bank_r_v_i[1] = (state_r == WB_RES) ? dma_r_en && r_bit_rev_dma_cntr[0] : alu_r_v_i[1];
+   assign bank_r_v_i[2] = alu_r_v_i[2];
+   assign bank_r_v_i[3] = alu_r_v_i[3];*/
 
    assign bank_w_data_i[0] = (state_r == LOAD_A || state_r == LOAD_C) ? io_resp_data_i : alu_w_data_i[0];
    assign bank_w_data_i[1] = (state_r == LOAD_A || state_r == LOAD_C) ? io_resp_data_i : alu_w_data_i[1];
@@ -701,7 +743,13 @@ module bp_sacc_he_encryption
    assign bank_r_addr_i[1] = alu_r_addr_i[1];   
    assign bank_r_addr_i[2] = (state_r == WB_RES) ? r_bit_rev_dma_cntr[log_max_he_n_p:1] : alu_r_addr_i[2];
    assign bank_r_addr_i[3] = (state_r == WB_RES) ? r_bit_rev_dma_cntr[log_max_he_n_p:1] : alu_r_addr_i[3];
-   
+
+   //to test all the data/computation results return back in bank0-1
+   /*assign bank_r_addr_i[0] = (state_r == WB_RES) ? r_bit_rev_dma_cntr[log_max_he_n_p:1] : alu_r_addr_i[0];
+   assign bank_r_addr_i[1] = (state_r == WB_RES) ? r_bit_rev_dma_cntr[log_max_he_n_p:1] : alu_r_addr_i[1];   
+   assign bank_r_addr_i[2] = alu_r_addr_i[2];
+   assign bank_r_addr_i[3] = alu_r_addr_i[3];
+   */
    genvar gi;
    // Instantiate 4 memory banks
    for (gi = 0; gi < 4; gi = gi + 1) begin : gen_mem
@@ -721,9 +769,10 @@ module bp_sacc_he_encryption
    
    //this is used if we load/store 64bit data at a time
    //assign dma_io_cmd_data_o = {2'b00,bank_r_data_o[3],2'b00,bank_r_data_o[2]};
-   //assign dma_io_cmd_data_o = prev_r_bit_rev_dma_cntr[0] ? bank_r_data_o[3] : bank_r_data_o[2];
-   
-   assign dma_io_cmd_data_o = prev_r_bit_rev_dma_cntr[0] ? bank_r_data_o[1] : bank_r_data_o[0];
+   assign dma_io_cmd_data_o = prev_r_bit_rev_dma_cntr[0] ? bank_r_data_o[3] : bank_r_data_o[2];
+
+   //to test all the data/computation results return back in bank0-1
+   //assign dma_io_cmd_data_o = prev_r_bit_rev_dma_cntr[0] ? bank_r_data_o[1] : bank_r_data_o[0];
    
    assign alu_r_data_0 = bank_r_data_o[alu_r_bank_0_delay];
    assign alu_r_data_1 = bank_r_data_o[alu_r_bank_1_delay];

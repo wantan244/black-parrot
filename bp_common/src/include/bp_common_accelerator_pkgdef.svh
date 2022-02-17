@@ -52,7 +52,7 @@
                             OP_NTT1,   // R/W bank 2 and 3
                             OP_MULT,   // Read all banks, write to bank 2 and 3
                             OP_ADD,    // Read all banks, write to bank 2 and 3
-                            OP_INTT0,  // R/W bank 0 and 1
+//                            OP_INTT0,  // R/W bank 0 and 1
                             OP_INTT1   // R/W bank 2 and 3
                             } alu_op_e;
 
