@@ -11,7 +11,8 @@ module bp_sacc_he_encryption
    , localparam cfg_bus_width_lp= `bp_cfg_bus_width(hio_width_p, core_id_width_p, cce_id_width_p, lce_id_width_p)
    , localparam max_he_n_p = 4096
    , localparam max_he_q_p = 30
-   , localparam log_max_he_n_p = `BSG_SAFE_CLOG2(max_he_n_p)
+   , localparam log_max_he_n_p = 12
+   , localparam log_n = 12 //can be different (smaller) from the log_max_n
    )
   (input                                        clk_i
    , input                                      reset_i
@@ -586,7 +587,7 @@ module bp_sacc_he_encryption
    alu (.clk(clk_i),
         .rst_n(~reset_i),
                 
-        .cfg_logn(`BSG_SAFE_CLOG2(n)),
+        .cfg_logn(log_n),
         .cfg_q(alu_cfg_q),
         .cfg_r(alu_cfg_r),
         .cfg_w(alu_cfg_w),
