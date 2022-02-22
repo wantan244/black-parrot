@@ -11,6 +11,11 @@
     branch = master
     ignore = untracked
     update = checkout
+[submodule "tools/dromajo"]
+	path = tools/dromajo
+	url = https://github.com/bsg-external/dromajo
+    branch = blackparrot_mods
+    update = checkout
 [submodule "tools/Surelog"]
     path = tools/Surelog
     url = https://github.com/alainmarcel/Surelog
@@ -39,3 +44,6 @@
     url = https://github.com/black-parrot/axe.git
     branch = blackparrot_mods
     update = checkout
+[submodule "dromajo"]
+	path = dromajo
+	url = https://github.com/bsg-external/dromajo
