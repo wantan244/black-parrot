@@ -129,7 +129,7 @@ module bp_sacc_he_encryption
              dma_io_cmd_header_cast_o.size = e_bedrock_msg_size_4; // we fetch 64 bit and store 32 bit in each bank (0,1 / 2,3)
              dma_io_cmd_header_cast_o.payload = cmd_payload;
              dma_io_cmd_header_cast_o.addr = dma_addr + (dma_cntr*4) ;
-             dma_io_cmd_header_cast_o.msg_type.mem <= dma_load_store ? e_bedrock_mem_uc_wr : e_bedrock_mem_uc_rd;
+             dma_io_cmd_header_cast_o.msg_type.mem = dma_load_store ? e_bedrock_mem_uc_wr : e_bedrock_mem_uc_rd;
              dma_r_en = 0;
              
              
