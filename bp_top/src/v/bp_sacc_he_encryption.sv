@@ -9,8 +9,8 @@ module bp_sacc_he_encryption
    `declare_bp_proc_params(bp_params_p)
    `declare_bp_bedrock_mem_if_widths(paddr_width_p, did_width_p, lce_id_width_p, lce_assoc_p)
    , localparam cfg_bus_width_lp= `bp_cfg_bus_width(hio_width_p, core_id_width_p, cce_id_width_p, lce_id_width_p)
-   , localparam max_he_n_p = 1024
-   , localparam max_he_q_p = 27
+   , localparam max_he_n_p = 4096
+   , localparam max_he_q_p = 30
    , localparam log_max_he_n_p = `BSG_SAFE_CLOG2(max_he_n_p)
    )
   (input                                        clk_i
