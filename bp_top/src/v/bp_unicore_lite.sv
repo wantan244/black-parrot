@@ -1,4 +1,3 @@
-
 `include "bp_common_defines.svh"
 `include "bp_top_defines.svh"
 
@@ -112,21 +111,21 @@ module bp_unicore_lite
 
   logic timer_irq_li, software_irq_li, external_irq_li;
 
-  // proc_cmd[2:0] = {IO cmd, BE UCE, FE UCE}
-  bp_bedrock_mem_header_s [2:0] proc_cmd_header_lo;
-  logic [2:0][uce_fill_width_p-1:0] proc_cmd_data_lo;
-  logic [2:0] proc_cmd_v_lo, proc_cmd_ready_and_li, proc_cmd_last_lo;
-  bp_bedrock_mem_header_s [2:0] proc_resp_header_li;
-  logic [2:0][uce_fill_width_p-1:0] proc_resp_data_li;
-  logic [2:0] proc_resp_v_li, proc_resp_ready_and_lo, proc_resp_last_li;
+  // proc_cmd[3:0] = {Accel, IO cmd, BE UCE, FE UCE}
+  bp_bedrock_mem_header_s [3:0] proc_cmd_header_lo;
+  logic [3:0][uce_fill_width_p-1:0] proc_cmd_data_lo;
+  logic [3:0] proc_cmd_v_lo, proc_cmd_ready_and_li, proc_cmd_last_lo;
+  bp_bedrock_mem_header_s [3:0] proc_resp_header_li;
+  logic [3:0][uce_fill_width_p-1:0] proc_resp_data_li;
+  logic [3:0] proc_resp_v_li, proc_resp_ready_and_lo, proc_resp_last_li;
 
-  // dev_cmd[4:0] = {CCE loopback, Mem cmd, IO cmd, CLINT, CFG}
-  bp_bedrock_mem_header_s [4:0] dev_cmd_header_li;
-  logic [4:0][uce_fill_width_p-1:0] dev_cmd_data_li;
-  logic [4:0] dev_cmd_v_li, dev_cmd_ready_and_lo, dev_cmd_last_li;
-  bp_bedrock_mem_header_s [4:0] dev_resp_header_lo;
-  logic [4:0][uce_fill_width_p-1:0] dev_resp_data_lo;
-  logic [4:0] dev_resp_v_lo, dev_resp_ready_and_li, dev_resp_last_lo;
+  // dev_cmd[5:0] = {Accel, CCE loopback, Mem cmd, IO cmd, CLINT, CFG}
+  bp_bedrock_mem_header_s [5:0] dev_cmd_header_li;
+  logic [5:0][uce_fill_width_p-1:0] dev_cmd_data_li;
+  logic [5:0] dev_cmd_v_li, dev_cmd_ready_and_lo, dev_cmd_last_li;
+  bp_bedrock_mem_header_s [5:0] dev_resp_header_lo;
+  logic [5:0][uce_fill_width_p-1:0] dev_resp_data_lo;
+  logic [5:0] dev_resp_v_lo, dev_resp_ready_and_li, dev_resp_last_lo;
 
   bp_cfg_bus_s cfg_bus_lo;
   bp_core_minimal
@@ -348,9 +347,9 @@ module bp_unicore_lite
   assign dev_resp_last_lo[3] = mem_resp_last_i;
 
   // Select destination of commands
-  localparam lg_num_dev_lp = `BSG_SAFE_CLOG2(5);
-  logic [2:0][lg_num_dev_lp-1:0] proc_cmd_dst_lo;
-  for (genvar i = 0; i < 3; i++)
+  localparam lg_num_dev_lp = `BSG_SAFE_CLOG2(6);
+  logic [3:0][lg_num_dev_lp-1:0] proc_cmd_dst_lo;
+  for (genvar i = 0; i < 4; i++)
     begin : cmd_dest
       bp_local_addr_s local_addr;
       assign local_addr = proc_cmd_header_lo[i].addr;
@@ -361,23 +360,25 @@ module bp_unicore_lite
 
       wire is_cfg_cmd      = local_cmd_li & (device_cmd_li == cfg_dev_gp);
       wire is_clint_cmd    = local_cmd_li & (device_cmd_li == clint_dev_gp);
-      wire is_io_cmd       = (local_cmd_li & (device_cmd_li inside {boot_dev_gp, host_dev_gp}))
-                             | is_other_hio | is_other_core;
+      wire is_sacc_cmd     = local_cmd_li & is_other_core; 
+      wire is_io_cmd       = (local_cmd_li & (device_cmd_li inside {boot_dev_gp, host_dev_gp}) & (local_addr.tile == cfg_bus_lo.core_id))
+                             | is_other_hio;
       wire is_mem_cmd      = (~local_cmd_li & ~is_other_hio) || (local_cmd_li & (device_cmd_li == cache_dev_gp));
-      wire is_loopback_cmd = local_cmd_li & ~is_cfg_cmd & ~is_clint_cmd & ~is_io_cmd & ~is_mem_cmd;
-
+      wire is_loopback_cmd = local_cmd_li & ~is_cfg_cmd & ~is_clint_cmd & ~is_io_cmd & ~is_mem_cmd & ~is_sacc_cmd;
+       
       bsg_encode_one_hot
-       #(.width_p(5), .lo_to_hi_p(1))
+       #(.width_p(6), .lo_to_hi_p(1))
        cmd_pe
-        (.i({is_loopback_cmd, is_mem_cmd, is_io_cmd, is_clint_cmd, is_cfg_cmd})
+        (.i({is_sacc_cmd, is_loopback_cmd, is_mem_cmd, is_io_cmd, is_clint_cmd, is_cfg_cmd})
          ,.addr_o(proc_cmd_dst_lo[i])
          ,.v_o()
          );
     end
 
   // Select destination of responses. Were there a way to transpose structs...
-  localparam lg_num_proc_lp = `BSG_SAFE_CLOG2(3);
-  logic [4:0][lg_num_proc_lp-1:0] dev_resp_dst_lo;
+  localparam lg_num_proc_lp = `BSG_SAFE_CLOG2(4);
+  logic [5:0][lg_num_proc_lp-1:0] dev_resp_dst_lo;
+  assign dev_resp_dst_lo[5] = dev_resp_header_lo[5].payload.lce_id[0+:lg_num_proc_lp]; 
   assign dev_resp_dst_lo[4] = dev_resp_header_lo[4].payload.lce_id[0+:lg_num_proc_lp];
   assign dev_resp_dst_lo[3] = dev_resp_header_lo[3].payload.lce_id[0+:lg_num_proc_lp];
   assign dev_resp_dst_lo[2] = dev_resp_header_lo[2].payload.lce_id[0+:lg_num_proc_lp];
@@ -388,8 +389,8 @@ module bp_unicore_lite
    #(.bp_params_p(bp_params_p)
      ,.data_width_p(uce_fill_width_p)
      ,.payload_width_p(mem_payload_width_lp)
-     ,.num_source_p(3)
-     ,.num_sink_p(5)
+     ,.num_source_p(4)
+     ,.num_sink_p(6)
      )
    cmd_xbar
     (.clk_i(clk_i)
@@ -413,8 +414,8 @@ module bp_unicore_lite
    #(.bp_params_p(bp_params_p)
      ,.data_width_p(uce_fill_width_p)
      ,.payload_width_p(mem_payload_width_lp)
-     ,.num_source_p(5)
-     ,.num_sink_p(3)
+     ,.num_source_p(6)
+     ,.num_sink_p(4)
      )
    resp_xbar
     (.clk_i(clk_i)
@@ -516,5 +517,40 @@ module bp_unicore_lite
   assign loopback_data_li = dev_cmd_data_li[4];
   assign dev_resp_data_lo[4] = loopback_data_lo;
 
+
+
+  bp_sacc_he_encryption
+    #(.bp_params_p(bp_params_p))
+    accelerator_link
+      (.clk_i(clk_i)
+       ,.reset_i(reset_i)
+       ,.lce_id_i(3) 
+
+       //Client
+       ,.io_cmd_header_i(dev_cmd_header_li[5])
+       ,.io_cmd_data_i(dev_cmd_data_li[5])
+       ,.io_cmd_v_i(dev_cmd_v_li[5])
+       ,.io_cmd_ready_o(dev_cmd_ready_and_lo[5])
+
+       ,.io_resp_header_o(dev_resp_header_lo[5])
+       ,.io_resp_data_o(dev_resp_data_lo[5])
+       ,.io_resp_v_o(dev_resp_v_lo[5])
+       ,.io_resp_yumi_i(dev_resp_ready_and_li[5])
+
+       //Master
+       ,.io_cmd_header_o(proc_cmd_header_lo[3])
+       ,.io_cmd_data_o(proc_cmd_data_lo[3])
+       ,.io_cmd_v_o(proc_cmd_v_lo[3])
+       ,.io_cmd_yumi_i(proc_cmd_ready_and_li[3])
+
+       ,.io_resp_header_i(proc_resp_header_li[3])
+       ,.io_resp_data_i(proc_resp_data_li[3])
+       ,.io_resp_v_i(proc_resp_v_li[3])
+       ,.io_resp_ready_o(proc_resp_ready_and_lo[3])
+      );
+
+   assign proc_cmd_last_lo[3] = proc_cmd_v_lo[3];
+   assign dev_resp_last_lo[5] = dev_resp_v_lo[5];
+   
 endmodule
 
