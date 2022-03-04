@@ -15,13 +15,9 @@ module bp_mem_complex
    , localparam mem_noc_ral_link_width_lp = `bsg_ready_and_link_sif_width(mem_noc_flit_width_p)
    )
   (input                                                     core_clk_i
-   , input                                                   core_reset_i
-
    , input                                                   coh_clk_i
-   , input                                                   coh_reset_i
-
    , input                                                   mem_clk_i
-   , input                                                   mem_reset_i
+   , input                                                   async_reset_i
 
    , input [io_noc_did_width_p-1:0]                          my_did_i
 
@@ -68,13 +64,9 @@ module bp_mem_complex
            #(.bp_params_p(bp_params_p))
            l2e
             (.core_clk_i(core_clk_i)
-             ,.core_reset_i(core_reset_i)
-
              ,.coh_clk_i(coh_clk_i)
-             ,.coh_reset_i(coh_reset_i)
-
              ,.mem_clk_i(mem_clk_i)
-             ,.mem_reset_i(mem_reset_i)
+             ,.async_reset_i(async_reset_i)
 
              ,.my_did_i(my_did_i)
              ,.my_cord_i(cord_li)

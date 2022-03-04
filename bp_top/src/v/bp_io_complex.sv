@@ -15,13 +15,9 @@ module bp_io_complex
    , localparam io_noc_ral_link_width_lp = `bsg_ready_and_link_sif_width(io_noc_flit_width_p)
    )
   (input                                                         core_clk_i
-   , input                                                       core_reset_i
-
    , input                                                       coh_clk_i
-   , input                                                       coh_reset_i
-
    , input                                                       io_clk_i
-   , input                                                       io_reset_i
+   , input                                                       async_reset_i
 
    , input [io_noc_did_width_p-1:0]                              my_did_i
    , input [io_noc_did_width_p-1:0]                              host_did_i
@@ -55,13 +51,9 @@ module bp_io_complex
        #(.bp_params_p(bp_params_p))
        io
         (.core_clk_i(core_clk_i)
-         ,.core_reset_i(core_reset_i)
-
          ,.coh_clk_i(coh_clk_i)
-         ,.coh_reset_i(coh_reset_i)
-
          ,.io_clk_i(io_clk_i)
-         ,.io_reset_i(io_reset_i)
+         ,.async_reset_i(async_reset_i)
 
          ,.host_did_i(host_did_i)
          ,.my_did_i(my_did_i)

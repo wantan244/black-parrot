@@ -15,13 +15,9 @@ module bp_io_tile_node
    , localparam io_noc_ral_link_width_lp = `bsg_ready_and_link_sif_width(io_noc_flit_width_p)
    )
   (input                                         core_clk_i
-   , input                                       core_reset_i
-
    , input                                       coh_clk_i
-   , input                                       coh_reset_i
-
    , input                                       io_clk_i
-   , input                                       io_reset_i
+   , input                                       async_reset_i
 
    , input [io_noc_did_width_p-1:0]              my_did_i
    , input [io_noc_did_width_p-1:0]              host_did_i
@@ -51,11 +47,38 @@ module bp_io_tile_node
   bp_io_ready_and_link_s core_io_cmd_link_li, core_io_cmd_link_lo;
   bp_io_ready_and_link_s core_io_resp_link_li, core_io_resp_link_lo;
 
+  logic core_reset_lo;
+  bsg_sync_sync
+   #(.width_p(1))
+   bss_core_reset
+    (.oclk_i(core_clk_i)
+     ,.iclk_data_i(async_reset_i)
+     ,.oclk_data_o(core_reset_lo)
+     );
+
+  logic coh_reset_lo;
+  bsg_sync_sync
+    #(.width_p(1))
+    bss_coh_reset
+     (.oclk_i(coh_clk_i)
+      ,.iclk_data_i(async_reset_i)
+      ,.oclk_data_o(coh_reset_lo)
+      );
+
+  logic io_reset_lo;
+  bsg_sync_sync
+    #(.width_p(1))
+    bss_io_reset
+     (.oclk_i(io_clk_i)
+      ,.iclk_data_i(async_reset_i)
+      ,.oclk_data_o(io_reset_lo)
+      );
+
   bp_io_tile
    #(.bp_params_p(bp_params_p))
    io_tile
     (.clk_i(core_clk_i)
-     ,.reset_i(core_reset_i)
+     ,.reset_i(core_reset_lo)
 
      ,.host_did_i(host_did_i)
      ,.my_did_i(my_did_i)
@@ -89,11 +112,11 @@ module bp_io_tile_node
      ,.async_clk_p(async_coh_clk_p)
      ,.els_p(2)
      )
-   io_coh_socket
+   coh_socket
     (.tile_clk_i(core_clk_i)
-     ,.tile_reset_i(core_reset_i)
+     ,.tile_reset_i(core_reset_lo)
      ,.network_clk_i(coh_clk_i)
-     ,.network_reset_i(coh_reset_i)
+     ,.network_reset_i(coh_reset_lo)
      ,.my_cord_i(my_cord_i)
      ,.network_link_i({coh_lce_req_link_i, coh_lce_cmd_link_i})
      ,.network_link_o({coh_lce_req_link_o, coh_lce_cmd_link_o})
@@ -113,9 +136,9 @@ module bp_io_tile_node
      )
    io_socket
     (.tile_clk_i(core_clk_i)
-     ,.tile_reset_i(core_reset_i)
+     ,.tile_reset_i(core_reset_lo)
      ,.network_clk_i(io_clk_i)
-     ,.network_reset_i(io_reset_i)
+     ,.network_reset_i(io_reset_lo)
      ,.my_cord_i(io_noc_cord_width_p'(my_did_i))
      ,.network_link_i({io_cmd_link_i, io_resp_link_i})
      ,.network_link_o({io_cmd_link_o, io_resp_link_o})

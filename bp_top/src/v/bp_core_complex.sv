@@ -22,14 +22,10 @@ module bp_core_complex
    , localparam coh_noc_ral_link_width_lp = `bsg_ready_and_link_sif_width(coh_noc_flit_width_p)
    )
   (input                                                         core_clk_i
-   , input                                                       core_rt_clk_i
-   , input                                                       core_reset_i
-
+   , input                                                       rt_clk_i
    , input                                                       coh_clk_i
-   , input                                                       coh_reset_i
-
    , input                                                       mem_clk_i
-   , input                                                       mem_reset_i
+   , input                                                       async_reset_i
 
    , input [io_noc_did_width_p-1:0]                              my_did_i
    , input [io_noc_did_width_p-1:0]                              host_did_i
@@ -90,14 +86,10 @@ module bp_core_complex
            #(.bp_params_p(bp_params_p))
            tile_node
             (.core_clk_i(core_clk_i)
-             ,.core_rt_clk_i(core_rt_clk_i)
-             ,.core_reset_i(core_reset_i)
-
+             ,.rt_clk_i(rt_clk_i)
              ,.coh_clk_i(coh_clk_i)
-             ,.coh_reset_i(coh_reset_i)
-
              ,.mem_clk_i(mem_clk_i)
-             ,.mem_reset_i(mem_reset_i)
+             ,.async_reset_i(async_reset_i)
 
              ,.my_did_i(my_did_i)
              ,.host_did_i(host_did_i)

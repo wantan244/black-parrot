@@ -17,10 +17,8 @@ module bp_sacc_tile_node
    , parameter accelerator_type_p = 1
    )
   (input                                         core_clk_i
-   , input                                       core_reset_i
-
    , input                                       coh_clk_i
-   , input                                       coh_reset_i
+   , input                                       async_reset_i
 
    , input [coh_noc_cord_width_p-1:0]            my_cord_i
    // Connected to other tiles on east and west
@@ -38,12 +36,29 @@ module bp_sacc_tile_node
   bp_coh_ready_and_link_s accel_lce_req_link_li, accel_lce_req_link_lo;
   bp_coh_ready_and_link_s accel_lce_cmd_link_li, accel_lce_cmd_link_lo;
 
+  logic core_reset_lo;
+  bsg_sync_sync
+   #(.width_p(1))
+   bss_core_reset
+    (.oclk_i(core_clk_i)
+     ,.iclk_data_i(async_reset_i)
+     ,.oclk_data_o(core_reset_lo)
+     );
+
+  logic coh_reset_lo;
+  bsg_sync_sync
+    #(.width_p(1))
+    bss_coh_reset
+     (.oclk_i(coh_clk_i)
+      ,.iclk_data_i(async_reset_i)
+      ,.oclk_data_o(coh_reset_lo)
+      );
 
   bp_sacc_tile
    #(.bp_params_p(bp_params_p))
    accel_tile
     (.clk_i(core_clk_i)
-     ,.reset_i(core_reset_i)
+     ,.reset_i(core_reset_lo)
 
      ,.my_cord_i(my_cord_i)
 
@@ -67,9 +82,9 @@ module bp_sacc_tile_node
      )
    sac_coh_socket
     (.tile_clk_i(core_clk_i)
-     ,.tile_reset_i(core_reset_i)
+     ,.tile_reset_i(core_reset_lo)
      ,.network_clk_i(coh_clk_i)
-     ,.network_reset_i(coh_reset_i)
+     ,.network_reset_i(coh_reset_lo)
      ,.my_cord_i(my_cord_i)
      ,.network_link_i({coh_lce_req_link_i, coh_lce_cmd_link_i})
      ,.network_link_o({coh_lce_req_link_o, coh_lce_cmd_link_o})

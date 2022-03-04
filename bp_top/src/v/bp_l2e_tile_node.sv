@@ -16,13 +16,9 @@ module bp_l2e_tile_node
    , localparam mem_noc_ral_link_width_lp = `bsg_ready_and_link_sif_width(mem_noc_flit_width_p)
    )
   (input                                         core_clk_i
-   , input                                       core_reset_i
-
    , input                                       coh_clk_i
-   , input                                       coh_reset_i
-
    , input                                       mem_clk_i
-   , input                                       mem_reset_i
+   , input                                       async_reset_i
 
    , input [io_noc_did_width_p-1:0]              my_did_i
    , input [coh_noc_cord_width_p-1:0]            my_cord_i
@@ -55,11 +51,38 @@ module bp_l2e_tile_node
   // Tile side membus connections
   bp_mem_ready_and_link_s l2e_mem_cmd_link_lo, l2e_mem_resp_link_li;
 
+  logic core_reset_lo;
+  bsg_sync_sync
+   #(.width_p(1))
+   bss_core_reset
+    (.oclk_i(core_clk_i)
+     ,.iclk_data_i(async_reset_i)
+     ,.oclk_data_o(core_reset_lo)
+     );
+
+  logic coh_reset_lo;
+  bsg_sync_sync
+    #(.width_p(1))
+    bss_coh_reset
+     (.oclk_i(coh_clk_i)
+      ,.iclk_data_i(async_reset_i)
+      ,.oclk_data_o(coh_reset_lo)
+      );
+
+  logic mem_reset_lo;
+  bsg_sync_sync
+    #(.width_p(1))
+    bss_mem_reset
+     (.oclk_i(mem_clk_i)
+      ,.iclk_data_i(async_reset_i)
+      ,.oclk_data_o(mem_reset_lo)
+      );
+
   bp_l2e_tile
    #(.bp_params_p(bp_params_p))
    l2e_tile
     (.clk_i(core_clk_i)
-     ,.reset_i(core_reset_i)
+     ,.reset_i(core_reset_lo)
 
      ,.my_did_i(my_did_i)
      ,.my_cord_i(my_cord_i)
@@ -89,9 +112,9 @@ module bp_l2e_tile_node
      )
    l2e_coh_socket
     (.tile_clk_i(core_clk_i)
-     ,.tile_reset_i(core_reset_i)
+     ,.tile_reset_i(core_reset_lo)
      ,.network_clk_i(coh_clk_i)
-     ,.network_reset_i(coh_reset_i)
+     ,.network_reset_i(coh_reset_lo)
      ,.my_cord_i(my_cord_i)
      ,.network_link_i({coh_lce_req_link_i, coh_lce_cmd_link_i, coh_lce_resp_link_i})
      ,.network_link_o({coh_lce_req_link_o, coh_lce_cmd_link_o, coh_lce_resp_link_o})
@@ -111,9 +134,9 @@ module bp_l2e_tile_node
      )
    l2e_mem_socket
     (.tile_clk_i(core_clk_i)
-     ,.tile_reset_i(core_reset_i)
+     ,.tile_reset_i(core_reset_lo)
      ,.network_clk_i(mem_clk_i)
-     ,.network_reset_i(mem_reset_i)
+     ,.network_reset_i(mem_reset_lo)
      ,.my_cord_i(my_cord_i[coh_noc_x_cord_width_p+:mem_noc_y_cord_width_p])
      ,.network_link_i({mem_resp_link_i, mem_cmd_link_i})
      ,.network_link_o({mem_cmd_link_o, mem_resp_link_o})

@@ -14,10 +14,8 @@ module bp_sacc_complex
    , localparam coh_noc_ral_link_width_lp = `bsg_ready_and_link_sif_width(coh_noc_flit_width_p)
    )
   (input                                                        core_clk_i
-   , input                                                      core_reset_i
-
    , input                                                      coh_clk_i
-   , input                                                      coh_reset_i
+   , input                                                      async_reset_i
 
    , input [sac_y_dim_p-1:0][coh_noc_ral_link_width_lp-1:0]     coh_req_link_i
    , output [sac_y_dim_p-1:0][coh_noc_ral_link_width_lp-1:0]    coh_req_link_o
@@ -45,22 +43,20 @@ module bp_sacc_complex
        if (sac_x_dim_p>0)
          begin : node
            bp_sacc_tile_node
-             #(.bp_params_p(bp_params_p))
-             accel_tile_node
-               (.core_clk_i(core_clk_i)
-               ,.core_reset_i(core_reset_i)
+            #(.bp_params_p(bp_params_p))
+            accel_tile_node
+             (.core_clk_i(core_clk_i)
+              ,.coh_clk_i(coh_clk_i)
+              ,.async_reset_i(async_reset_i)
 
-               ,.coh_clk_i(coh_clk_i)
-               ,.coh_reset_i(coh_reset_i)
+              ,.my_cord_i(cord_li)
 
-               ,.my_cord_i(cord_li)
+              ,.coh_lce_req_link_i(lce_req_link_li[j])
+              ,.coh_lce_cmd_link_i(lce_cmd_link_li[j])
 
-               ,.coh_lce_req_link_i(lce_req_link_li[j])
-               ,.coh_lce_cmd_link_i(lce_cmd_link_li[j])
-
-               ,.coh_lce_req_link_o(lce_req_link_lo[j])
-               ,.coh_lce_cmd_link_o(lce_cmd_link_lo[j])
-               );
+              ,.coh_lce_req_link_o(lce_req_link_lo[j])
+              ,.coh_lce_cmd_link_o(lce_cmd_link_lo[j])
+              );
         end
       else
         begin : stub

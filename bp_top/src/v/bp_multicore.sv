@@ -23,17 +23,11 @@ module bp_multicore
    , localparam io_noc_ral_link_width_lp = `bsg_ready_and_link_sif_width(io_noc_flit_width_p)
    )
   (input                                                    core_clk_i
-   , input                                                  core_rt_clk_i
-   , input                                                  core_reset_i
-
+   , input                                                  rt_clk_i
    , input                                                  coh_clk_i
-   , input                                                  coh_reset_i
-
    , input                                                  io_clk_i
-   , input                                                  io_reset_i
-
    , input                                                  mem_clk_i
-   , input                                                  mem_reset_i
+   , input                                                  async_reset_i
 
    , input [io_noc_did_width_p-1:0]                         my_did_i
    , input [io_noc_did_width_p-1:0]                         host_did_i
@@ -71,14 +65,10 @@ module bp_multicore
    #(.bp_params_p(bp_params_p))
    cc
     (.core_clk_i(core_clk_i)
-     ,.core_rt_clk_i(core_rt_clk_i)
-     ,.core_reset_i(core_reset_i)
-
+     ,.rt_clk_i(rt_clk_i)
      ,.coh_clk_i(coh_clk_i)
-     ,.coh_reset_i(coh_reset_i)
-
      ,.mem_clk_i(mem_clk_i)
-     ,.mem_reset_i(mem_reset_i)
+     ,.async_reset_i(async_reset_i)
 
      ,.my_did_i(my_did_i)
      ,.host_did_i(host_did_i)
@@ -112,13 +102,9 @@ module bp_multicore
    #(.bp_params_p(bp_params_p))
    ic
     (.core_clk_i(core_clk_i)
-     ,.core_reset_i(core_reset_i)
-
      ,.coh_clk_i(coh_clk_i)
-     ,.coh_reset_i(coh_reset_i)
-
      ,.io_clk_i(io_clk_i)
-     ,.io_reset_i(io_reset_i)
+     ,.async_reset_i(async_reset_i)
 
      ,.my_did_i(my_did_i)
      ,.host_did_i(host_did_i)
@@ -140,13 +126,9 @@ module bp_multicore
    #(.bp_params_p(bp_params_p))
    mc
     (.core_clk_i(core_clk_i)
-     ,.core_reset_i(core_reset_i)
-
      ,.coh_clk_i(coh_clk_i)
-     ,.coh_reset_i(coh_reset_i)
-
      ,.mem_clk_i(mem_clk_i)
-     ,.mem_reset_i(mem_reset_i)
+     ,.async_reset_i(async_reset_i)
 
      ,.my_did_i(my_did_i)
 
@@ -170,10 +152,8 @@ module bp_multicore
    #(.bp_params_p(bp_params_p))
    cac
     (.core_clk_i(core_clk_i)
-     ,.core_reset_i(core_reset_i)
-
      ,.coh_clk_i(coh_clk_i)
-     ,.coh_reset_i(coh_reset_i)
+     ,.async_reset_i(async_reset_i)
 
      ,.coh_req_link_i(coh_req_hor_link_lo[E])
      ,.coh_req_link_o(coh_req_hor_link_li[E])
@@ -189,10 +169,8 @@ module bp_multicore
    #(.bp_params_p(bp_params_p))
    sac
     (.core_clk_i(core_clk_i)
-     ,.core_reset_i(core_reset_i)
-
      ,.coh_clk_i(coh_clk_i)
-     ,.coh_reset_i(coh_reset_i)
+     ,.async_reset_i(async_reset_i)
 
      ,.coh_req_link_i(coh_req_hor_link_lo[W])
      ,.coh_req_link_o(coh_req_hor_link_li[W])

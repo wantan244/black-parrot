@@ -92,17 +92,11 @@ module wrapper
        #(.bp_params_p(bp_params_p))
        dut
         (.core_clk_i(clk_i)
-         ,.core_rt_clk_i(rt_clk_i)
-         ,.core_reset_i(reset_i)
-
+         ,.rt_clk_i(rt_clk_i)
          ,.coh_clk_i(clk_i)
-         ,.coh_reset_i(reset_i)
-
          ,.io_clk_i(clk_i)
-         ,.io_reset_i(reset_i)
-
          ,.mem_clk_i(clk_i)
-         ,.mem_reset_i(reset_i)
+         ,.async_reset_i(reset_i)
 
          ,.my_did_i(my_did_i)
          ,.host_did_i(host_did_i)
