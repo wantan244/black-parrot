@@ -311,6 +311,7 @@ $BP_TOP_DIR/src/v/ntt_alu/int_mult.sv
 $BP_TOP_DIR/src/v/ntt_alu/mul_red.sv
 $BP_TOP_DIR/src/v/ntt_alu/ntt.sv
 $BP_TOP_DIR/src/v/ntt_alu/seq.sv
+$BP_TOP_DIR/src/v/ntt_alu/seq4.sv
 $BP_TOP_DIR/src/v/bp_sacc_he_encryption.sv
 $BP_TOP_DIR/src/v/bp_core.sv
 $BP_TOP_DIR/src/v/bp_core_minimal.sv
