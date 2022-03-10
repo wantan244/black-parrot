@@ -70,15 +70,14 @@ module bp_be_ptw
   logic tlb_miss_v, page_fault_v;
 
   sv39_pte_s dcache_pte_n, dcache_pte_r;
-  logic dcache_early_hit_v_r;
   assign dcache_pte_n = dcache_early_data_i[0+:dword_width_gp];
   bsg_dff_en
-   #(.width_p(1+$bits(sv39_pte_s)))
+   #(.width_p($bits(sv39_pte_s)))
    dcache_pte_reg
     (.clk_i(clk_i)
      ,.en_i(is_recv)
-     ,.data_i({dcache_early_hit_v_i, dcache_pte_n})
-     ,.data_o({dcache_early_hit_v_r, dcache_pte_r})
+     ,.data_i(dcache_pte_n)
+     ,.data_o(dcache_pte_r)
      );
 
   for(genvar i=0; i<page_table_depth_p; i++) begin : rof1
@@ -110,9 +109,9 @@ module bp_be_ptw
   wire pte_is_megapage          = (level_cntr == 2'd1);
   wire pte_is_gigapage          = (level_cntr == 2'd2);
 
-  assign level_cntr_en          = is_check & dcache_early_hit_v_r & ~pte_is_leaf & ~page_fault_v;
+  assign level_cntr_en          = is_check & ~pte_is_leaf & ~page_fault_v;
 
-  assign ppn_en                 = start | (is_check & dcache_early_hit_v_r);
+  assign ppn_en                 = start | is_check;
   assign ppn_n                  = is_idle ? base_ppn_i : dcache_pte_r.ppn[0+:ptag_width_p];
 
   wire pte_invalid              = (~dcache_pte_r.v) | (~dcache_pte_r.r & dcache_pte_r.w);
@@ -193,7 +192,7 @@ module bp_be_ptw
     case(state_r)
       e_idle      :  state_n = tlb_miss_v ? e_send_load : e_idle;
       e_send_load :  state_n = (dcache_ready_i & dcache_v_o) ? e_recv_load : e_send_load;
-      e_recv_load :  state_n = dcache_early_hit_v_r ? e_check_load : e_send_load;
+      e_recv_load :  state_n = dcache_early_hit_v_i ? e_check_load : e_send_load;
       e_check_load:  state_n = (pte_is_leaf | page_fault_v) ? e_writeback : e_send_load;
       default: // e_writeback
                     state_n = e_idle;
