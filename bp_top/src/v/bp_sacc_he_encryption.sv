@@ -9,53 +9,40 @@ module bp_sacc_he_encryption
    `declare_bp_proc_params(bp_params_p)
    `declare_bp_bedrock_mem_if_widths(paddr_width_p, did_width_p, lce_id_width_p, lce_assoc_p)
    , localparam cfg_bus_width_lp= `bp_cfg_bus_width(hio_width_p, core_id_width_p, cce_id_width_p, lce_id_width_p)
-   , localparam max_he_n_p = 4096
-   , localparam max_he_q_p = 30
-   , localparam log_max_he_n_p = 12
+   , localparam max_he_n_p = 1024
+   , localparam max_he_q_p = 27
+   , localparam log_max_he_n_p = 10
    )
   (input                                        clk_i
    , input                                      reset_i
 
    , input [lce_id_width_p-1:0]                 lce_id_i
 
-   //, input [cce_mem_header_width_lp-1:0]        io_cmd_header_i
    , input [mem_header_width_lp-1:0]            io_cmd_header_i 
-   , input [cce_block_width_p-1:0]              io_cmd_data_i
+   , input [uce_fill_width_p-1:0]               io_cmd_data_i
    , input                                      io_cmd_v_i
    , output logic                               io_cmd_ready_o
 
-   //, output logic [cce_mem_header_width_lp-1:0] io_resp_header_o
-   , output logic [mem_header_width_lp-1:0] io_resp_header_o
-   , output logic [cce_block_width_p-1:0]       io_resp_data_o
+   , output logic [mem_header_width_lp-1:0]     io_resp_header_o
+   , output logic [uce_fill_width_p-1:0]        io_resp_data_o
    , output logic                               io_resp_v_o
    , input                                      io_resp_yumi_i
 
-   //, output logic [cce_mem_header_width_lp-1:0] io_cmd_header_o
-   , output logic [mem_header_width_lp-1:0] io_cmd_header_o 
-   , output logic [cce_block_width_p-1:0]       io_cmd_data_o
+   , output logic [mem_header_width_lp-1:0]     io_cmd_header_o 
+   , output logic [uce_fill_width_p-1:0]        io_cmd_data_o
    , output logic                               io_cmd_v_o
    , input                                      io_cmd_yumi_i
 
-   //, input [cce_mem_header_width_lp-1:0]        io_resp_header_i
-   , input [mem_header_width_lp-1:0]        io_resp_header_i
-   , input [cce_block_width_p-1:0]              io_resp_data_i
+   , input [mem_header_width_lp-1:0]            io_resp_header_i
+   , input [uce_fill_width_p-1:0]               io_resp_data_i
    , input                                      io_resp_v_i
    , output logic                               io_resp_ready_o
    );
    
-   // CCE-IO interface is used for uncached requests-read/write memory mapped CSR
-   //`declare_bp_bedrock_mem_if(paddr_width_p, did_width_p, lce_id_width_p, lce_assoc_p, cce);
-   `declare_bp_bedrock_mem_if(paddr_width_p, did_width_p, lce_id_width_p, lce_assoc_p);
 
+   `declare_bp_bedrock_mem_if(paddr_width_p, did_width_p, lce_id_width_p, lce_assoc_p);
    `declare_bp_memory_map(paddr_width_p, daddr_width_p);
-   
-   /*`declare_bp_memory_map(paddr_width_p, daddr_width_p);
-   `bp_cast_o(bp_bedrock_cce_mem_header_s, io_cmd_header);
-   `bp_cast_i(bp_bedrock_cce_mem_header_s, io_resp_header);
-   `bp_cast_i(bp_bedrock_cce_mem_header_s, io_cmd_header);
-   `bp_cast_o(bp_bedrock_cce_mem_header_s, io_resp_header);
-*/
-   
+      
    `bp_cast_o(bp_bedrock_mem_header_s, io_cmd_header);
    `bp_cast_i(bp_bedrock_mem_header_s, io_resp_header);
    `bp_cast_i(bp_bedrock_mem_header_s, io_cmd_header);
@@ -101,7 +88,7 @@ module bp_sacc_he_encryption
    ///////////////////////////////////DMA_FSM///////////////////////////////////////////
    logic                        dma_start, dma_load_store, dma_r_en, dma_io_cmd_v_o;
    logic [63:0]                 dma_addr, dma_cntr, dma_len;
-   //bp_bedrock_cce_mem_header_s  dma_io_cmd_header_cast_o;
+   
    bp_bedrock_mem_header_s dma_io_cmd_header_cast_o;
    
    logic [cce_block_width_p-1:0] dma_io_cmd_data_o;
@@ -545,7 +532,7 @@ module bp_sacc_he_encryption
           begin
              state_n = (c0_c1 && ~enc_dec) ? LOAD_A : INTR_D;
              //to test all the data/computation results return back in bank0-1 
-             ///////////state_n = INTR_D;
+             //state_n = INTR_D;
              
              dma_start = 0;
              dma_addr = 0;
@@ -555,7 +542,7 @@ module bp_sacc_he_encryption
              he_io_cmd_v_o = ~c0_c1 || enc_dec;
              
              //to test all the data/computation results return back in bank0-1 
-             ///////////he_io_cmd_v_o = c0_c1 || enc_dec;
+             //he_io_cmd_v_o = c0_c1 || enc_dec;
             
              he_io_cmd_header_cast_o.size = e_bedrock_msg_size_8;
              he_io_cmd_header_cast_o.payload = cmd_payload;
@@ -592,25 +579,27 @@ module bp_sacc_he_encryption
    assign io_cmd_data_o = he_io_cmd_v_o ? he_io_cmd_data_o : dma_io_cmd_data_o; 
    /////////////////////////////////////////////////////////////////////////////////////
    //ALU module includes ntt, add, mul, address generators, sequencers, BFU
-   logic [log_max_he_n_p-2:0] alu_r_addr_0;
-   logic [log_max_he_n_p-2:0] alu_r_addr_1;
-   logic [1:0]                             alu_r_bank_0, alu_r_bank_0_delay;
-   logic [1:0]                             alu_r_bank_1, alu_r_bank_1_delay;
+   logic [log_max_he_n_p-3:0] alu_r_addr_0;
+   logic [log_max_he_n_p-3:0] alu_r_addr_1;
+   logic [2:0]                             alu_r_bank_0, alu_r_bank_0_delay;
+   logic [2:0]                             alu_r_bank_1, alu_r_bank_1_delay;
    logic                                   alu_r_en_0;
    logic                                   alu_r_en_1;
    logic [max_he_q_p-1:0]                  alu_r_data_0;
    logic [max_he_q_p-1:0]                  alu_r_data_1;
 
-   logic [log_max_he_n_p-2:0] alu_w_addr_0;
-   logic [log_max_he_n_p-2:0] alu_w_addr_1;
-   logic [1:0]                             alu_w_bank_0;
-   logic [1:0]                             alu_w_bank_1;
+   logic [log_max_he_n_p-3:0] alu_w_addr_0;
+   logic [log_max_he_n_p-3:0] alu_w_addr_1;
+   logic [2:0]                             alu_w_bank_0;
+   logic [2:0]                             alu_w_bank_1;
    logic                                   alu_w_en_0;
    logic                                   alu_w_en_1;
    logic [max_he_q_p-1:0]                  alu_w_data_0;
    logic [max_he_q_p-1:0]                  alu_w_data_1;
 
-  
+   logic [log_max_he_n_p-1:0]              cfg_logn;
+   assign cfg_logn = log_max_he_n_p;
+   
 
    ntt_alu #(.max_logn(log_max_he_n_p),
              .max_logq(max_he_q_p)
@@ -618,7 +607,7 @@ module bp_sacc_he_encryption
    alu (.clk(clk_i),
         .rst_n(~reset_i),
                 
-        .cfg_logn(log_max_he_n_p),
+        .cfg_logn(cfg_logn),
         .cfg_q(alu_cfg_q),
         .cfg_r(alu_cfg_r),
         .cfg_w(alu_cfg_w),
@@ -661,41 +650,71 @@ module bp_sacc_he_encryption
   // Address conversion for reading
   function automatic [log_max_he_n_p-1:0] cnt2ntt_addr(input [log_max_he_n_p-1:0] in,
                                                        input [log_max_he_n_p-1:0] logn);
-    // output = ({in_rev[logn-2:0], in_rev[logn-1]})
-    logic [log_max_he_n_p-1:0] in_rev, res, all_ones;
-    all_ones = '1;
+    logic [log_max_he_n_p-1:0] in_rev, res;
     in_rev = bit_rev(in, logn);
-    res = {in_rev[log_max_he_n_p-2:0], in_rev[logn-1]};
-    res = res & (all_ones >> (log_max_he_n_p - logn));
+    res = cnt2intt_addr(in_rev, logn);
     return res;
   endfunction 
 
    // Address conversion for reading INTT outputs
    function automatic [log_max_he_n_p-1:0] cnt2intt_addr(input [log_max_he_n_p-1:0] in,
                                                          input [log_max_he_n_p-1:0] logn);
-      logic [log_max_he_n_p-1:0]                                                    in_rev, res, all_ones;
-      all_ones = '1;
-      res = {in[log_max_he_n_p-2:0], in[logn-1]};
-      res = res & (all_ones >> (log_max_he_n_p - logn));
+      logic [log_max_he_n_p-1:0] in_rev, res;
+      res[1:0] = in[1:0];
+      res[3:2] = {in[logn-1], in[logn-2]};
+      res[log_max_he_n_p-1:4] = in[log_max_he_n_p-3:2];
+      res = res & ((1 << logn) - 1);
       return res;
    endfunction
    //////////////////////////////////BUFFERS////////////////////////////////////////////
-   // instantiate 4 banks 
-   logic [3:0]                       alu_w_v_i, alu_r_v_i;
-   logic [log_max_he_n_p-2:0]        alu_w_addr_i[3:0];
-   logic [log_max_he_n_p-2:0]        alu_r_addr_i[3:0];
-   logic [max_he_q_p-1:0]            alu_w_data_i[3:0];
+   // instantiate 8 1rw banks 
+   logic [7:0]                       alu_w_v_i, alu_r_v_i;
+   logic [log_max_he_n_p-3:0]        alu_w_addr_i[7:0];
+   logic [log_max_he_n_p-3:0]        alu_r_addr_i[7:0];
+   logic [max_he_q_p-1:0]            alu_w_data_i[7:0];
 
-      // Delay read bank# for 1 cycle
+   logic [7:0]                       temp_alu_w_v_i;
+   logic [log_max_he_n_p-3:0]        temp_alu_w_addr_i[7:0];
+   logic [max_he_q_p-1:0]            temp_alu_w_data_i[7:0];
+
+   // instantiate 8 1r1w banks ==> write buffer
+   logic [log_max_he_n_p-1:0]   wb_addr[7:0];
+   logic [max_he_q_p-1:0]       wb_data[7:0];
+   logic [7:0]                  wb_valid;
+
+   logic [7:0]                           bank_w_v_i, bank_r_v_i;
+   logic [log_max_he_n_p-3:0]            bank_w_addr_i[7:0];
+   logic [log_max_he_n_p-3:0]            bank_r_addr_i[7:0];
+   logic [max_he_q_p-1:0]                bank_w_data_i[7:0];
+   logic [max_he_q_p-1:0]                bank_r_data_o[7:0];
+
+   integer                      i;
+   // Delay read bank# for 1 cycle
    always_ff @(posedge clk_i) begin
       alu_r_bank_0_delay <= alu_r_bank_0;
       alu_r_bank_1_delay <= alu_r_bank_1;
+            
+      for (i = 0; i < 8; i = i + 1)
+        if (reset_i)
+          wb_valid[i] <= 'b0;
+        else if (alu_w_en_0 && alu_w_bank_0 == i && (alu_r_v_i[i] || wb_valid[i])) begin
+           wb_valid[i] <= 'b1;
+           wb_data[i]  <= alu_w_data_0;
+           wb_addr[i]  <= alu_w_addr_0;
+        end else if (alu_w_en_1 && alu_w_bank_1 == i && (alu_r_v_i[i] || wb_valid[i])) begin
+           wb_valid[i] <= 'b1;
+           wb_data[i]  <= alu_w_data_1;
+           wb_addr[i]  <= alu_w_addr_1;
+        end else if (alu_w_v_i[i] && (bank_w_addr_i[i] == wb_addr[i]))
+          wb_valid[i] <= 'b0;
+       
    end
 
    integer ii;
    always_comb begin
       // Instantiate read/write muxes for 4 memory banks. Unroll the loops when needed
-      for (ii = 0; ii < 4; ii = ii + 1) begin : gen_mem_input_mux
+      for (ii = 0; ii < 8; ii = ii + 1) 
+      begin : gen_mem_input_mux
          // Read port addr/en input
          unique if (alu_r_en_0 && alu_r_bank_0 == ii) begin
             alu_r_v_i[ii] = 'b1;
@@ -709,103 +728,143 @@ module bp_sacc_he_encryption
          end
 
          // Write port addr/en/data input
-         unique if (alu_w_en_0 && alu_w_bank_0 == ii) begin
-            alu_w_v_i[ii] = 'b1;
-            alu_w_addr_i[ii] = alu_w_addr_0;
-            alu_w_data_i[ii] = alu_w_data_0;
-         end else if (alu_w_en_1 && alu_w_bank_1 == ii) begin
-            alu_w_v_i[ii] = 'b1;
-            alu_w_addr_i[ii] = alu_w_addr_1;
-            alu_w_data_i[ii] = alu_w_data_1;
+
+         if (wb_valid[ii]) begin
+              alu_w_v_i[ii] = 'b1;
+              alu_w_addr_i[ii] = wb_addr[ii];
+              alu_w_data_i[ii] = wb_data[ii];
+         end
+         else if (alu_w_en_0 && alu_w_bank_0 == ii) begin
+            
+            if (alu_r_v_i[ii])
+               alu_w_v_i[ii] = 0;
+            else begin
+               alu_w_v_i[ii] = 'b1;
+               alu_w_addr_i[ii] = alu_w_addr_0;
+               alu_w_data_i[ii] = alu_w_data_0;
+            end
+            
+         end else if (alu_w_en_1 && alu_w_bank_1 == ii) begin 
+            
+            if (alu_r_v_i[ii])
+               alu_w_v_i[ii] = 0;
+            else begin
+               alu_w_v_i[ii] = 'b1;
+               alu_w_addr_i[ii] = alu_w_addr_1;
+               alu_w_data_i[ii] = alu_w_data_1;
+            end
          end else begin
             alu_w_v_i[ii] = 'b0;
             alu_w_addr_i[ii] = 'b0;
             alu_w_data_i[ii] = 'b0;
          end
+                  
       end
-   end // always_comb
+   end 
 
-   logic [3:0]                           bank_w_v_i, bank_r_v_i;
-   logic [log_max_he_n_p-2:0]            bank_w_addr_i[3:0];
-   logic [log_max_he_n_p-2:0]            bank_r_addr_i[3:0];
-   logic [max_he_q_p-1:0]                bank_w_data_i[3:0];
-   logic [max_he_q_p-1:0]                bank_r_data_o[3:0];
 
    //((A * B ) + C) 
    //((bank0-1 * bank2-3) + bank0-1)
    //((bank2-3) + bank0-1)
    //((bank2-3))
-
    //decryption ==> INTT results in bank2-3
 
-   //writes to different banks but the same index in the banks
    assign w_bit_rev_dma_cntr = enc_dec ? dma_cntr : bit_rev (dma_cntr, log_max_he_n_p);
    assign r_bit_rev_dma_cntr = enc_dec ?
                                cnt2intt_addr (dma_state_r == RESET_DMA ? dma_cntr : dma_cntr+1, log_max_he_n_p)
                                : 
                                cnt2ntt_addr  (dma_state_r == RESET_DMA ? dma_cntr : dma_cntr+1, log_max_he_n_p);
    
-   assign bank_w_v_i[0] = (state_r == LOAD_A || state_r == LOAD_C) ? io_resp_v_i && ~w_bit_rev_dma_cntr[0] : alu_w_v_i[0];
-   assign bank_w_v_i[1] = (state_r == LOAD_A || state_r == LOAD_C) ? io_resp_v_i && w_bit_rev_dma_cntr[0] : alu_w_v_i[1];
-   assign bank_w_v_i[2] = (state_r == LOAD_B) ? io_resp_v_i && ~w_bit_rev_dma_cntr[0] : alu_w_v_i[2];
-   assign bank_w_v_i[3] = (state_r == LOAD_B) ? io_resp_v_i && w_bit_rev_dma_cntr[0] : alu_w_v_i[3];
+   assign bank_w_v_i[0] = (state_r == LOAD_A || state_r == LOAD_C) ? io_resp_v_i && ~w_bit_rev_dma_cntr[1] && ~w_bit_rev_dma_cntr[0] : alu_w_v_i[0];
+   assign bank_w_v_i[1] = (state_r == LOAD_A || state_r == LOAD_C) ? io_resp_v_i && ~w_bit_rev_dma_cntr[1] &&  w_bit_rev_dma_cntr[0] : alu_w_v_i[1];
+   assign bank_w_v_i[2] = (state_r == LOAD_A || state_r == LOAD_C) ? io_resp_v_i &&  w_bit_rev_dma_cntr[1] && ~w_bit_rev_dma_cntr[0] : alu_w_v_i[2];
+   assign bank_w_v_i[3] = (state_r == LOAD_A || state_r == LOAD_C) ? io_resp_v_i &&  w_bit_rev_dma_cntr[1] &&  w_bit_rev_dma_cntr[0] : alu_w_v_i[3];
+   assign bank_w_v_i[4] = (state_r == LOAD_B) ? io_resp_v_i && ~w_bit_rev_dma_cntr[1] && ~w_bit_rev_dma_cntr[0] : alu_w_v_i[4];
+   assign bank_w_v_i[5] = (state_r == LOAD_B) ? io_resp_v_i && ~w_bit_rev_dma_cntr[1] &&  w_bit_rev_dma_cntr[0] : alu_w_v_i[5];
+   assign bank_w_v_i[6] = (state_r == LOAD_B) ? io_resp_v_i &&  w_bit_rev_dma_cntr[1] && ~w_bit_rev_dma_cntr[0] : alu_w_v_i[6];
+   assign bank_w_v_i[7] = (state_r == LOAD_B) ? io_resp_v_i &&  w_bit_rev_dma_cntr[1] &&  w_bit_rev_dma_cntr[0] : alu_w_v_i[7];
 
    assign bank_r_v_i[0] = alu_r_v_i[0];
    assign bank_r_v_i[1] = alu_r_v_i[1];
-   assign bank_r_v_i[2] = (state_r == WB_RES) ? dma_r_en && ~r_bit_rev_dma_cntr[0] : alu_r_v_i[2];
-   assign bank_r_v_i[3] = (state_r == WB_RES) ? dma_r_en && r_bit_rev_dma_cntr[0] : alu_r_v_i[3];
-
-   //to test all the data/computation results return back in bank0-1
-   /*assign bank_r_v_i[0] = (state_r == WB_RES) ? dma_r_en && ~r_bit_rev_dma_cntr[0] : alu_r_v_i[0];
-   assign bank_r_v_i[1] = (state_r == WB_RES) ? dma_r_en && r_bit_rev_dma_cntr[0] : alu_r_v_i[1];
    assign bank_r_v_i[2] = alu_r_v_i[2];
-   assign bank_r_v_i[3] = alu_r_v_i[3];*/
+   assign bank_r_v_i[3] = alu_r_v_i[3];
+   assign bank_r_v_i[4] = (state_r == WB_RES) ? dma_r_en && ~r_bit_rev_dma_cntr[1] && ~r_bit_rev_dma_cntr[0] : alu_r_v_i[4];
+   assign bank_r_v_i[5] = (state_r == WB_RES) ? dma_r_en && ~r_bit_rev_dma_cntr[1] &&  r_bit_rev_dma_cntr[0] : alu_r_v_i[5];
+   assign bank_r_v_i[6] = (state_r == WB_RES) ? dma_r_en &&  r_bit_rev_dma_cntr[1] && ~r_bit_rev_dma_cntr[0] : alu_r_v_i[6];
+   assign bank_r_v_i[7] = (state_r == WB_RES) ? dma_r_en &&  r_bit_rev_dma_cntr[1] &&  r_bit_rev_dma_cntr[0] : alu_r_v_i[7];
 
-   assign bank_w_data_i[0] = (state_r == LOAD_A || state_r == LOAD_C) ? io_resp_data_i : alu_w_data_i[0];
-   assign bank_w_data_i[1] = (state_r == LOAD_A || state_r == LOAD_C) ? io_resp_data_i : alu_w_data_i[1];
-   assign bank_w_data_i[2] = (state_r == LOAD_B) ? io_resp_data_i : alu_w_data_i[2];
-   assign bank_w_data_i[3] = (state_r == LOAD_B) ? io_resp_data_i : alu_w_data_i[3];
 
-   assign bank_w_addr_i[0] = (state_r == LOAD_A || state_r == LOAD_C) ? w_bit_rev_dma_cntr[log_max_he_n_p:1] : alu_w_addr_i[0];
-   assign bank_w_addr_i[1] = (state_r == LOAD_A || state_r == LOAD_C) ? w_bit_rev_dma_cntr[log_max_he_n_p:1] : alu_w_addr_i[1];
-   assign bank_w_addr_i[2] = (state_r == LOAD_B) ? w_bit_rev_dma_cntr[log_max_he_n_p:1] : alu_w_addr_i[2];
-   assign bank_w_addr_i[3] = (state_r == LOAD_B) ? w_bit_rev_dma_cntr[log_max_he_n_p:1] : alu_w_addr_i[3];
+   genvar w_d_0;
+   generate
+      for (w_d_0=0; w_d_0 < 4; w_d_0++) begin
+         assign bank_w_data_i[w_d_0] = (state_r == LOAD_A || state_r == LOAD_C) ? io_resp_data_i : alu_w_data_i[w_d_0];
+      end
+   endgenerate
 
-   assign bank_r_addr_i[0] = alu_r_addr_i[0];
-   assign bank_r_addr_i[1] = alu_r_addr_i[1];   
-   assign bank_r_addr_i[2] = (state_r == WB_RES) ? r_bit_rev_dma_cntr[log_max_he_n_p:1] : alu_r_addr_i[2];
-   assign bank_r_addr_i[3] = (state_r == WB_RES) ? r_bit_rev_dma_cntr[log_max_he_n_p:1] : alu_r_addr_i[3];
+   genvar w_d_1;
+   generate
+      for (w_d_1=4; w_d_1 < 8; w_d_1++) begin
+         assign bank_w_data_i[w_d_1] = (state_r == LOAD_B) ? io_resp_data_i : alu_w_data_i[w_d_1];
+      end
+   endgenerate
+   
 
-   //to test all the data/computation results return back in bank0-1
-   /*assign bank_r_addr_i[0] = (state_r == WB_RES) ? r_bit_rev_dma_cntr[log_max_he_n_p:1] : alu_r_addr_i[0];
-   assign bank_r_addr_i[1] = (state_r == WB_RES) ? r_bit_rev_dma_cntr[log_max_he_n_p:1] : alu_r_addr_i[1];   
-   assign bank_r_addr_i[2] = alu_r_addr_i[2];
-   assign bank_r_addr_i[3] = alu_r_addr_i[3];
-   */
-   genvar gi;
-   // Instantiate 4 memory banks
-   for (gi = 0; gi < 4; gi = gi + 1) begin : gen_mem
-      bsg_mem_1r1w_sync #(.width_p(max_he_q_p),
-                          .els_p  (max_he_n_p>>1)
+
+   genvar w_a_0;
+   generate
+      for (w_a_0=0; w_a_0 < 4; w_a_0++) begin
+         assign bank_w_addr_i[w_a_0] = (state_r == LOAD_A || state_r == LOAD_C) ? w_bit_rev_dma_cntr[log_max_he_n_p:2] : alu_w_addr_i[w_a_0];
+      end
+   endgenerate
+   
+   genvar w_a_1;
+   generate
+      for (w_a_1=4; w_a_1 < 8; w_a_1++) begin
+         assign bank_w_addr_i[w_a_1] = (state_r == LOAD_B) ? w_bit_rev_dma_cntr[log_max_he_n_p:2] : alu_w_addr_i[w_a_1];
+      end
+   endgenerate
+
+   
+
+   genvar r_a_0;
+   generate
+      for (r_a_0=0; r_a_0 < 4; r_a_0++) begin
+         assign bank_r_addr_i[r_a_0] = alu_r_addr_i[r_a_0];
+      end
+   endgenerate
+   
+   genvar r_a_1;
+   generate
+      for (r_a_1=4; r_a_1 < 8; r_a_1++) begin
+         assign bank_r_addr_i[r_a_1] = (state_r == WB_RES) ? r_bit_rev_dma_cntr[log_max_he_n_p:2] : alu_r_addr_i[r_a_1];
+      end
+   endgenerate
+  
+  
+   genvar  gi;
+   // Instantiate 8 memory banks
+   for (gi = 0; gi < 8; gi = gi + 1) begin : gen_mem
+      bsg_mem_1rw_sync #(.width_p(max_he_q_p),
+                          .els_p  (max_he_n_p>>2),
+                          .substitute_1r1w_p (0)
                           ) mem_bank (
                                   clk_i,
                                   reset_i,
-                                  bank_w_v_i[gi],
-                                  bank_w_addr_i[gi],
                                   bank_w_data_i[gi],
-                                  bank_r_v_i[gi],
-                                  bank_r_addr_i[gi],
+                                  bank_r_v_i[gi] ? bank_r_addr_i[gi] : bank_w_addr_i[gi],
+                                  bank_r_v_i[gi] || bank_w_v_i[gi],
+                                  bank_w_v_i[gi],
                                   bank_r_data_o[gi]
                                   );
-   end // block: gen_mem
+   end 
    
-   //this is used if we load/store 64bit data at a time
-   //assign dma_io_cmd_data_o = {2'b00,bank_r_data_o[3],2'b00,bank_r_data_o[2]};
-   assign dma_io_cmd_data_o = prev_r_bit_rev_dma_cntr[0] ? bank_r_data_o[3] : bank_r_data_o[2];
 
-   //to test all the data/computation results return back in bank0-1
-   //assign dma_io_cmd_data_o = prev_r_bit_rev_dma_cntr[0] ? bank_r_data_o[1] : bank_r_data_o[0];
-   
+
+   assign dma_io_cmd_data_o = (prev_r_bit_rev_dma_cntr[1]  && prev_r_bit_rev_dma_cntr[0]) ? bank_r_data_o[7] 
+                             :(prev_r_bit_rev_dma_cntr[1]  && ~prev_r_bit_rev_dma_cntr[0])? bank_r_data_o[6]
+                             :(~prev_r_bit_rev_dma_cntr[1] && prev_r_bit_rev_dma_cntr[0]) ? bank_r_data_o[5]
+                             :                                                              bank_r_data_o[4];
+      
    assign alu_r_data_0 = bank_r_data_o[alu_r_bank_0_delay];
    assign alu_r_data_1 = bank_r_data_o[alu_r_bank_1_delay];
    
